@@ -6,6 +6,7 @@ import authRoutes from "./modules/auth/authRoutes.js";
 import adminRoutes from "./modules/admin/adminRoutes.js";
 import courseRoutes from "./modules/courses/courseRoutes.js";
 import lessonRoutes from "./modules/lessons/lessonRoutes.js";
+import exerciseRoutes from "./modules/exercises/exerciseRoutes.js";
 
 const app = express();
 
@@ -39,6 +40,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/admin/courses", courseRoutes);
 app.use("/api/admin/courses", lessonRoutes);
+app.use("/api/admin/lessons", exerciseRoutes);
 
 app.use((req, res) => {
   res.status(404).json({
