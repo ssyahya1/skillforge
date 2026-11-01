@@ -291,15 +291,16 @@ export async function createExerciseLanguage(exerciseId, languageData) {
   return result.rows[0];
 }
 
-export async function findLanguageById(languageId) {
+export async function findExerciseLanguageById(exerciseId, languageId) {
   const result = await pool.query(
     `
       SELECT ${languageColumn}
       FROM public.exercise_languages
-      WHERE id = $1
+      WHERE exercise_id = $1
+      AND id = $2
       LIMIT 1
     `,
-    [languageId],
+    [exerciseId, languageId],
   );
 
   return result.rows[0] ?? null;
@@ -326,7 +327,11 @@ const languageColumnMap = {
   entryPoint: "entry_point",
 };
 
-export async function updateExerciseLanguage(languageId, languageData) {
+export async function updateExerciseLanguageById(
+  exerciseId,
+  languageId,
+  languageData,
+) {
   const fields = Object.keys(languageData).filter((key) =>
     Object.hasOwn(languageColumnMap, key),
   );
@@ -343,14 +348,15 @@ export async function updateExerciseLanguage(languageId, languageData) {
     return `${languageColumnMap[field]} = $${index + 1}`;
   });
 
-  values.push(languageId);
+  values.push(exerciseId, languageId);
 
   const result = await pool.query(
     `
       UPDATE public.exercise_languages
       SET ${setClauses.join(", ")},
           updated_at = NOW()
-      WHERE id = $${values.length}
+          WHERE exercise_id = $${values.length - 1}
+          AND id = $${values.length}
       RETURNING ${languageColumn}
     `,
     values,
@@ -359,14 +365,15 @@ export async function updateExerciseLanguage(languageId, languageData) {
   return result.rows[0] ?? null;
 }
 
-export async function deleteExerciseLanguage(languageId) {
+export async function deleteExerciseLanguageById(exerciseId, languageId) {
   const result = await pool.query(
     `
       DELETE FROM public.exercise_languages
-      WHERE id = $1
+      WHERE exercise_id = $1
+      AND id = $2
       RETURNING id
     `,
-    [languageId],
+    [exerciseId, languageId],
   );
 
   return result.rows[0] ?? null;

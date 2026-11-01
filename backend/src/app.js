@@ -23,6 +23,7 @@ app.use(cookieParser());
 app.get("/api/health", (req, res) => {
   res.status(200).json({ status: "ok" });
 });
+
 app.get("/api/debug/cookies", (req, res) => {
   const cookies = res.getHeader("Set-Cookie");
 
@@ -55,6 +56,7 @@ app.use((err, req, res, next) => {
   if (res.headersSent) {
     return next(err);
   }
+
   const errorStatus = err.status ?? err.statusCode;
 
   const status =
@@ -75,10 +77,15 @@ app.use((err, req, res, next) => {
   if (err.code === "23505") {
     const conflictMessages = {
       courses_slug_key: "A course with this slug already exists.",
+
       lessons_course_slug_unique:
         "A lesson with this slug already exists in this course.",
+
       lessons_course_position_unique:
         "Another lesson already uses this position in this course.",
+
+      exercise_languages_exercise_language_unique:
+        "This language is already configured for this exercise.",
     };
 
     const message = conflictMessages[err.constraint];

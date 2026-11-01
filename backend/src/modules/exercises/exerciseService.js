@@ -31,7 +31,7 @@ export const getExerciseByIdService = async (lessonId, exerciseId) => {
     throw error;
   }
   const exercise = await exerciseRepository.findExerciseById(exerciseId);
-  if (!exercise|| exercise.lesson_id !== lessonId) {
+  if (!exercise || exercise.lesson_id !== lessonId) {
     const error = new Error("Exercise not found.");
     error.statusCode = 404;
     throw error;
@@ -297,8 +297,7 @@ export const deleteExerciseService = async (lessonId, exerciseId) => {
     throw error;
   }
 
-  const deletedExercise =
-    await exerciseRepository.deleteExercise(exerciseId);
+  const deletedExercise = await exerciseRepository.deleteExercise(exerciseId);
 
   if (!deletedExercise) {
     const error = new Error("Exercise could not be deleted.");
@@ -307,4 +306,95 @@ export const deleteExerciseService = async (lessonId, exerciseId) => {
   }
 
   return deletedExercise;
+};
+export const createExerciseLanguageService = async (
+  lessonId,
+  exerciseId,
+  languageData,
+) => {
+  const exercise = await getExerciseByIdService(lessonId, exerciseId);
+  if (exercise.status !== "draft") {
+    const error = new Error(
+      "Language configurations can only be added to draft exercises.",
+    );
+    error.statusCode = 409;
+    throw error;
+  }
+  const languageConfig = await exerciseRepository.createExerciseLanguage(
+    exerciseId,
+    languageData,
+  );
+  return languageConfig;
+};
+export const getExerciseLanguagesService = async (lessonId, exerciseId) => {
+  await getExerciseByIdService(lessonId, exerciseId);
+  const languages = await exerciseRepository.getExerciseLanguages(exerciseId);
+  return languages;
+};
+export const getExerciseLanguageByIdService = async (
+  lessonId,
+  exerciseId,
+  languageId,
+) => {
+  await getExerciseByIdService(lessonId, exerciseId);
+  const language = await exerciseRepository.findExerciseLanguageById(
+    exerciseId,
+    languageId,
+  );
+  if (!language) {
+    const error = new Error("Exercise language configuration not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+  return language;
+};
+export const updateExerciseLanguageService = async (
+  lessonId,
+  exerciseId,
+  languageId,
+  languageData,
+) => {
+  const exercise = await getExerciseByIdService(lessonId, exerciseId);
+  if (exercise.status !== "draft") {
+    const error = new Error(
+      "Language configurations can only be updated on draft exercises.",
+    );
+    error.statusCode = 409;
+    throw error;
+  }
+  const language = await exerciseRepository.updateExerciseLanguageById(
+    exerciseId,
+    languageId,
+    languageData,
+  );
+  if (!language) {
+    const error = new Error("Exercise language configuration not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+  return language;
+};
+export const deleteExerciseLanguageService = async (
+  lessonId,
+  exerciseId,
+  languageId,
+) => {
+  const exercise = await getExerciseByIdService(lessonId, exerciseId);
+  if (exercise.status !== "draft") {
+    const error = new Error(
+      "Language configurations can only be deleted from draft exercises.",
+    );
+    error.statusCode = 409;
+    throw error;
+  }
+  const deletedLanguage = await exerciseRepository.deleteExerciseLanguageById(
+    exerciseId,
+    languageId,
+  );
+  if (!deletedLanguage) {
+    const error = new Error("Exercise language configuration not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+  return deletedLanguage;
 };

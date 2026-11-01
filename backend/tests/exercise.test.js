@@ -1,4 +1,3 @@
-
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import request from "supertest";
 
@@ -13,10 +12,15 @@ const mocks = vi.hoisted(() => ({
     publishExerciseService: vi.fn(),
     archiveExerciseService: vi.fn(),
     deleteExerciseService: vi.fn(),
+
+    createExerciseLanguageService: vi.fn(),
+    getExerciseLanguagesService: vi.fn(),
+    getExerciseLanguageByIdService: vi.fn(),
+    updateExerciseLanguageService: vi.fn(),
+    deleteExerciseLanguageService: vi.fn(),
   },
 }));
 
-// Mock authentication middleware.
 vi.mock("../src/middleware/requireAuth.js", () => ({
   requireAuth: (req, res, next) => {
     if (mocks.authMode === "unauthenticated") {
@@ -35,7 +39,6 @@ vi.mock("../src/middleware/requireAuth.js", () => ({
   },
 }));
 
-// Mock admin authorization middleware.
 vi.mock("../src/middleware/requireAdmin.js", () => ({
   requireAdmin: (req, res, next) => {
     if (mocks.authMode === "non-admin") {
@@ -57,6 +60,7 @@ import app from "../src/app.js";
 
 const lessonId = "550e8400-e29b-41d4-a716-446655440000";
 const exerciseId = "550e8400-e29b-41d4-a716-446655440001";
+const languageId = "550e8400-e29b-41d4-a716-446655440002";
 
 const baseUrl = `/api/admin/lessons/${lessonId}/exercises`;
 
@@ -75,6 +79,26 @@ const exerciseResponse = {
   status: "draft",
 };
 
+const validLanguage = {
+  language: "javascript",
+  runtimeVersion: "22.x",
+  executionMode: "function",
+  starterCode: "function solution() {\n  // Write your code here\n}",
+  entryPoint: "solution",
+};
+
+const languageResponse = {
+  id: languageId,
+  exercise_id: exerciseId,
+  language: "javascript",
+  runtime_version: "22.x",
+  execution_mode: "function",
+  starter_code: "function solution() {\n  // Write your code here\n}",
+  entry_point: "solution",
+};
+
+const languageUrl = `${baseUrl}/${exerciseId}/languages`;
+
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.authMode = "admin";
@@ -88,8 +112,9 @@ describe("Exercise Management HTTP Integration", () => {
       const response = await request(app).get(baseUrl);
 
       expect(response.status).toBe(401);
-      expect(mocks.exerciseService.getExercisesByLessonService)
-        .not.toHaveBeenCalled();
+      expect(
+        mocks.exerciseService.getExercisesByLessonService,
+      ).not.toHaveBeenCalled();
     });
 
     it("should reject authenticated non-admin users", async () => {
@@ -98,8 +123,9 @@ describe("Exercise Management HTTP Integration", () => {
       const response = await request(app).get(baseUrl);
 
       expect(response.status).toBe(403);
-      expect(mocks.exerciseService.getExercisesByLessonService)
-        .not.toHaveBeenCalled();
+      expect(
+        mocks.exerciseService.getExercisesByLessonService,
+      ).not.toHaveBeenCalled();
     });
   });
 
@@ -109,9 +135,7 @@ describe("Exercise Management HTTP Integration", () => {
         exerciseResponse,
       );
 
-      const response = await request(app)
-        .post(baseUrl)
-        .send(validExercise);
+      const response = await request(app).post(baseUrl).send(validExercise);
 
       expect(response.status).toBe(201);
       expect(response.body).toEqual(exerciseResponse);
@@ -131,8 +155,9 @@ describe("Exercise Management HTTP Integration", () => {
         });
 
       expect(response.status).toBe(400);
-      expect(mocks.exerciseService.createExerciseService)
-        .not.toHaveBeenCalled();
+      expect(
+        mocks.exerciseService.createExerciseService,
+      ).not.toHaveBeenCalled();
     });
 
     it("should reject unexpected fields", async () => {
@@ -144,8 +169,9 @@ describe("Exercise Management HTTP Integration", () => {
         });
 
       expect(response.status).toBe(400);
-      expect(mocks.exerciseService.createExerciseService)
-        .not.toHaveBeenCalled();
+      expect(
+        mocks.exerciseService.createExerciseService,
+      ).not.toHaveBeenCalled();
     });
   });
 
@@ -183,9 +209,7 @@ describe("Exercise Management HTTP Integration", () => {
         exerciseResponse,
       );
 
-      const response = await request(app).get(
-        `${baseUrl}/${exerciseId}`,
-      );
+      const response = await request(app).get(`${baseUrl}/${exerciseId}`);
 
       expect(response.status).toBe(200);
       expect(response.body).toEqual(exerciseResponse);
@@ -197,13 +221,12 @@ describe("Exercise Management HTTP Integration", () => {
     });
 
     it("should reject an invalid exercise UUID", async () => {
-      const response = await request(app).get(
-        `${baseUrl}/invalid-id`,
-      );
+      const response = await request(app).get(`${baseUrl}/invalid-id`);
 
       expect(response.status).toBe(400);
-      expect(mocks.exerciseService.getExerciseByIdService)
-        .not.toHaveBeenCalled();
+      expect(
+        mocks.exerciseService.getExerciseByIdService,
+      ).not.toHaveBeenCalled();
     });
   });
 
@@ -242,8 +265,9 @@ describe("Exercise Management HTTP Integration", () => {
         .send({});
 
       expect(response.status).toBe(400);
-      expect(mocks.exerciseService.updateExerciseService)
-        .not.toHaveBeenCalled();
+      expect(
+        mocks.exerciseService.updateExerciseService,
+      ).not.toHaveBeenCalled();
     });
   });
 
@@ -274,11 +298,9 @@ describe("Exercise Management HTTP Integration", () => {
     });
 
     it("should reject an empty reorder list", async () => {
-      const response = await request(app)
-        .patch(`${baseUrl}/reorder`)
-        .send({
-          exercises: [],
-        });
+      const response = await request(app).patch(`${baseUrl}/reorder`).send({
+        exercises: [],
+      });
 
       expect(response.status).toBe(400);
       expect(
@@ -341,9 +363,7 @@ describe("Exercise Management HTTP Integration", () => {
     it("should delete an exercise", async () => {
       mocks.exerciseService.deleteExerciseService.mockResolvedValue(undefined);
 
-      const response = await request(app).delete(
-        `${baseUrl}/${exerciseId}`,
-      );
+      const response = await request(app).delete(`${baseUrl}/${exerciseId}`);
 
       expect(response.status).toBe(204);
 
@@ -351,6 +371,211 @@ describe("Exercise Management HTTP Integration", () => {
         lessonId,
         exerciseId,
       );
+    });
+  });
+
+  describe("Create exercise language configuration", () => {
+    it("should create a language configuration", async () => {
+      mocks.exerciseService.createExerciseLanguageService.mockResolvedValue(
+        languageResponse,
+      );
+
+      const response = await request(app).post(languageUrl).send(validLanguage);
+
+      expect(response.status).toBe(201);
+      expect(response.body).toEqual(languageResponse);
+
+      expect(
+        mocks.exerciseService.createExerciseLanguageService,
+      ).toHaveBeenCalledWith(lessonId, exerciseId, validLanguage);
+    });
+
+    it("should reject an invalid language", async () => {
+      const response = await request(app)
+        .post(languageUrl)
+        .send({
+          ...validLanguage,
+          language: "java",
+        });
+
+      expect(response.status).toBe(400);
+      expect(
+        mocks.exerciseService.createExerciseLanguageService,
+      ).not.toHaveBeenCalled();
+    });
+
+    it("should reject an invalid execution mode", async () => {
+      const response = await request(app)
+        .post(languageUrl)
+        .send({
+          ...validLanguage,
+          executionMode: "invalid",
+        });
+
+      expect(response.status).toBe(400);
+      expect(
+        mocks.exerciseService.createExerciseLanguageService,
+      ).not.toHaveBeenCalled();
+    });
+
+    it("should reject unexpected fields", async () => {
+      const response = await request(app)
+        .post(languageUrl)
+        .send({
+          ...validLanguage,
+          extra: "unexpected",
+        });
+
+      expect(response.status).toBe(400);
+      expect(
+        mocks.exerciseService.createExerciseLanguageService,
+      ).not.toHaveBeenCalled();
+    });
+
+    it("should reject an invalid exercise UUID", async () => {
+      const response = await request(app)
+        .post(`${baseUrl}/invalid-id/languages`)
+        .send(validLanguage);
+
+      expect(response.status).toBe(400);
+      expect(
+        mocks.exerciseService.createExerciseLanguageService,
+      ).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("List exercise language configurations", () => {
+    it("should return all language configurations for an exercise", async () => {
+      mocks.exerciseService.getExerciseLanguagesService.mockResolvedValue([
+        languageResponse,
+      ]);
+
+      const response = await request(app).get(languageUrl);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual([languageResponse]);
+
+      expect(
+        mocks.exerciseService.getExerciseLanguagesService,
+      ).toHaveBeenCalledWith(lessonId, exerciseId);
+    });
+
+    it("should reject an invalid exercise UUID", async () => {
+      const response = await request(app).get(
+        `${baseUrl}/invalid-id/languages`,
+      );
+
+      expect(response.status).toBe(400);
+      expect(
+        mocks.exerciseService.getExerciseLanguagesService,
+      ).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("Get exercise language configuration by ID", () => {
+    it("should return a specific language configuration", async () => {
+      mocks.exerciseService.getExerciseLanguageByIdService.mockResolvedValue(
+        languageResponse,
+      );
+
+      const response = await request(app).get(`${languageUrl}/${languageId}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual(languageResponse);
+
+      expect(
+        mocks.exerciseService.getExerciseLanguageByIdService,
+      ).toHaveBeenCalledWith(lessonId, exerciseId, languageId);
+    });
+
+    it("should reject an invalid language UUID", async () => {
+      const response = await request(app).get(`${languageUrl}/invalid-id`);
+
+      expect(response.status).toBe(400);
+      expect(
+        mocks.exerciseService.getExerciseLanguageByIdService,
+      ).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("Update exercise language configuration", () => {
+    it("should update a language configuration", async () => {
+      const updateData = {
+        runtimeVersion: "23.x",
+        starterCode: "function solution() {\n  return 0;\n}",
+      };
+
+      const updatedLanguage = {
+        ...languageResponse,
+        runtime_version: updateData.runtimeVersion,
+        starter_code: updateData.starterCode,
+      };
+
+      mocks.exerciseService.updateExerciseLanguageService.mockResolvedValue(
+        updatedLanguage,
+      );
+
+      const response = await request(app)
+        .patch(`${languageUrl}/${languageId}`)
+        .send(updateData);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual(updatedLanguage);
+
+      expect(
+        mocks.exerciseService.updateExerciseLanguageService,
+      ).toHaveBeenCalledWith(lessonId, exerciseId, languageId, updateData);
+    });
+
+    it("should reject an empty update body", async () => {
+      const response = await request(app)
+        .patch(`${languageUrl}/${languageId}`)
+        .send({});
+
+      expect(response.status).toBe(400);
+      expect(
+        mocks.exerciseService.updateExerciseLanguageService,
+      ).not.toHaveBeenCalled();
+    });
+
+    it("should reject an attempt to update the language identity", async () => {
+      const response = await request(app)
+        .patch(`${languageUrl}/${languageId}`)
+        .send({
+          language: "python",
+        });
+
+      expect(response.status).toBe(400);
+      expect(
+        mocks.exerciseService.updateExerciseLanguageService,
+      ).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("Delete exercise language configuration", () => {
+    it("should delete a language configuration", async () => {
+      mocks.exerciseService.deleteExerciseLanguageService.mockResolvedValue({
+        id: languageId,
+      });
+
+      const response = await request(app).delete(
+        `${languageUrl}/${languageId}`,
+      );
+
+      expect(response.status).toBe(204);
+
+      expect(
+        mocks.exerciseService.deleteExerciseLanguageService,
+      ).toHaveBeenCalledWith(lessonId, exerciseId, languageId);
+    });
+
+    it("should reject an invalid language UUID", async () => {
+      const response = await request(app).delete(`${languageUrl}/invalid-id`);
+
+      expect(response.status).toBe(400);
+      expect(
+        mocks.exerciseService.deleteExerciseLanguageService,
+      ).not.toHaveBeenCalled();
     });
   });
 
@@ -377,6 +602,21 @@ describe("Exercise Management HTTP Integration", () => {
 
       expect(response.status).toBe(500);
       expect(response.body.error).toBe("INTERNAL_SERVER_ERROR");
+    });
+
+    it("should forward language configuration service errors", async () => {
+      mocks.exerciseService.getExerciseLanguageByIdService.mockRejectedValue(
+        Object.assign(new Error("Exercise language configuration not found."), {
+          statusCode: 404,
+        }),
+      );
+
+      const response = await request(app).get(`${languageUrl}/${languageId}`);
+
+      expect(response.status).toBe(404);
+      expect(response.body.message).toBe(
+        "Exercise language configuration not found.",
+      );
     });
   });
 });

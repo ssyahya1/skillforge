@@ -8,6 +8,7 @@ import {
   testCaseIdSchema,
   lessonExercisesParamsSchema,
   exerciseParamsSchema,
+  exerciseLanguageParamsSchema,
   createExerciseSchema,
   updateExerciseSchema,
   createExerciseLanguageSchema,
@@ -129,6 +130,59 @@ describe("Exercise Validation Schemas", () => {
         exerciseParamsSchema.safeParse({
           lessonId: validLessonId,
           exerciseId: validExerciseId,
+          extra: "unexpected",
+        }).success,
+      ).toBe(false);
+    });
+  });
+
+  describe("Exercise language parameter schemas", () => {
+    it("should accept valid exercise and language parameters", () => {
+      expect(
+        exerciseLanguageParamsSchema.safeParse({
+          lessonId: validLessonId,
+          exerciseId: validExerciseId,
+          languageId: validLanguageId,
+        }).success,
+      ).toBe(true);
+    });
+
+    it("should reject an invalid lesson ID", () => {
+      expect(
+        exerciseLanguageParamsSchema.safeParse({
+          lessonId: "invalid-id",
+          exerciseId: validExerciseId,
+          languageId: validLanguageId,
+        }).success,
+      ).toBe(false);
+    });
+
+    it("should reject an invalid exercise ID", () => {
+      expect(
+        exerciseLanguageParamsSchema.safeParse({
+          lessonId: validLessonId,
+          exerciseId: "invalid-id",
+          languageId: validLanguageId,
+        }).success,
+      ).toBe(false);
+    });
+
+    it("should reject an invalid language ID", () => {
+      expect(
+        exerciseLanguageParamsSchema.safeParse({
+          lessonId: validLessonId,
+          exerciseId: validExerciseId,
+          languageId: "invalid-id",
+        }).success,
+      ).toBe(false);
+    });
+
+    it("should reject additional parameter fields", () => {
+      expect(
+        exerciseLanguageParamsSchema.safeParse({
+          lessonId: validLessonId,
+          exerciseId: validExerciseId,
+          languageId: validLanguageId,
           extra: "unexpected",
         }).success,
       ).toBe(false);

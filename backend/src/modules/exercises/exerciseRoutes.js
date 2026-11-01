@@ -32,6 +32,38 @@ router.patch(
   exerciseController.reorderExercisesController,
 );
 
+router.post(
+  "/:lessonId/exercises/:exerciseId/languages",
+  validateParams(exerciseValidation.exerciseParamsSchema),
+  validateRequest(exerciseValidation.createExerciseLanguageSchema),
+  exerciseController.createExerciseLanguageController,
+);
+
+router.get(
+  "/:lessonId/exercises/:exerciseId/languages",
+  validateParams(exerciseValidation.exerciseParamsSchema),
+  exerciseController.getExerciseLanguageController,
+);
+
+router.get(
+  "/:lessonId/exercises/:exerciseId/languages/:languageId",
+  validateParams(exerciseValidation.exerciseLanguageParamsSchema),
+  exerciseController.getExerciseLanguageByIdController,
+);
+
+router.patch(
+  "/:lessonId/exercises/:exerciseId/languages/:languageId",
+  validateParams(exerciseValidation.exerciseLanguageParamsSchema),
+  validateRequest(exerciseValidation.updateExerciseLanguageSchema),
+  exerciseController.updateExerciseLanguageController,
+);
+
+router.delete(
+  "/:lessonId/exercises/:exerciseId/languages/:languageId",
+  validateParams(exerciseValidation.exerciseLanguageParamsSchema),
+  exerciseController.deleteExerciseLanguageController,
+);
+
 router.get(
   "/:lessonId/exercises/:exerciseId",
   validateParams(exerciseValidation.exerciseParamsSchema),

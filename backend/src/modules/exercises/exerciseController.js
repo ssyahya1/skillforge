@@ -109,3 +109,67 @@ export const deleteExerciseController = async (req, res, next) => {
     next(error);
   }
 };
+export const createExerciseLanguageController = async (req,res,next) => {
+  try{
+    const lessonId = req.validatedParams.lessonId;
+    const exerciseId = req.validatedParams.exerciseId;
+    const languageData = req.body;
+    const createdLanguage = await exerciseService.createExerciseLanguageService(lessonId,exerciseId,languageData);
+    res.status(201).json(createdLanguage);
+  }
+  catch(error){
+    next(error);
+  }
+};
+export const getExerciseLanguageController = async (req,res,next) => {
+  try{
+    const lessonId = req.validatedParams.lessonId;
+    const exerciseId = req.validatedParams.exerciseId;
+    const getLanguages = await exerciseService.getExerciseLanguagesService(lessonId,exerciseId);
+    res.status(200).json(getLanguages);
+
+  }
+  catch(error){
+    next(error)
+  }
+};
+export const getExerciseLanguageByIdController = async (req,res,next) => {
+  try{
+    const lessonId = req.validatedParams.lessonId;
+    const exerciseId = req.validatedParams.exerciseId;
+    const languageId = req.validatedParams.languageId;
+    const getoneLanguage = await exerciseService.getExerciseLanguageByIdService(lessonId,exerciseId,languageId)
+    res.status(200).json(getoneLanguage);
+
+  }
+  catch(error){
+    next(error)
+  }
+};
+export const updateExerciseLanguageController = async (req,res,next) => {
+  try{
+   const lessonId  = req.validatedParams.lessonId;
+  const exerciseId = req.validatedParams.exerciseId;
+  const languageId = req.validatedParams.languageId;
+  const languageData = req.body;
+  const updatedLanguage = await exerciseService.updateExerciseLanguageService(lessonId,exerciseId,languageId,languageData)
+  res.status(200).json(updatedLanguage);
+
+  }
+  catch(error){
+    next(error)
+  }
+};
+export const deleteExerciseLanguageController = async (req,res,next) => {
+  try{
+    const lessonId = req.validatedParams.lessonId;
+    const exerciseId = req.validatedParams.exerciseId;
+    const languageId = req.validatedParams.languageId;
+     await exerciseService.deleteExerciseLanguageService(lessonId,exerciseId,languageId);
+    res.status(204).send();
+
+  }
+  catch(error){
+    next(error)
+  }
+}

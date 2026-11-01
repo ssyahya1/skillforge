@@ -1,4 +1,3 @@
-
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 import * as exerciseRepository from "../src/modules/exercises/exerciseRepository.js";
@@ -12,6 +11,11 @@ import {
   publishExerciseService,
   archiveExerciseService,
   deleteExerciseService,
+  createExerciseLanguageService,
+  getExerciseLanguagesService,
+  getExerciseLanguageByIdService,
+  updateExerciseLanguageService,
+  deleteExerciseLanguageService,
 } from "../src/modules/exercises/exerciseService.js";
 
 vi.mock("../src/modules/exercises/exerciseRepository.js", () => ({
@@ -22,6 +26,10 @@ vi.mock("../src/modules/exercises/exerciseRepository.js", () => ({
   updateExercise: vi.fn(),
   reorderExercises: vi.fn(),
   getExerciseLanguages: vi.fn(),
+  createExerciseLanguage: vi.fn(),
+  findExerciseLanguageById: vi.fn(),
+  updateExerciseLanguageById: vi.fn(),
+  deleteExerciseLanguageById: vi.fn(),
   countVisibleTestCases: vi.fn(),
   countHiddenTestCases: vi.fn(),
   updateExerciseStatus: vi.fn(),
@@ -30,6 +38,7 @@ vi.mock("../src/modules/exercises/exerciseRepository.js", () => ({
 
 const lessonId = "lesson-uuid";
 const exerciseId = "exercise-uuid";
+const languageId = "language-uuid";
 
 const mockLesson = {
   id: lessonId,
@@ -63,6 +72,24 @@ const mockLanguages = [
   },
 ];
 
+const mockLanguageData = {
+  language: "javascript",
+  runtimeVersion: "24",
+  executionMode: "function",
+  starterCode: "function solution() {}",
+  entryPoint: "solution",
+};
+
+const mockLanguage = {
+  id: languageId,
+  exercise_id: exerciseId,
+  language: "javascript",
+  runtime_version: "24",
+  execution_mode: "function",
+  starter_code: "function solution() {}",
+  entry_point: "solution",
+};
+
 const mockReorderData = [
   {
     exerciseId,
@@ -70,27 +97,16 @@ const mockReorderData = [
   },
 ];
 
-const createError = (message, statusCode) => {
-  const error = new Error(message);
-  error.statusCode = statusCode;
-  return error;
-};
-
 beforeEach(() => {
   vi.resetAllMocks();
 });
-
-// CREATE EXERCISE
 
 describe("createExerciseService", () => {
   it("should create an exercise successfully", async () => {
     exerciseRepository.findLessonById.mockResolvedValue(mockLesson);
     exerciseRepository.createExercise.mockResolvedValue(mockExercise);
 
-    const result = await createExerciseService(
-      lessonId,
-      mockExerciseData,
-    );
+    const result = await createExerciseService(lessonId, mockExerciseData);
 
     expect(result).toEqual(mockExercise);
     expect(exerciseRepository.createExercise).toHaveBeenCalledWith(
@@ -132,17 +148,12 @@ describe("createExerciseService", () => {
   });
 });
 
-// GET EXERCISE BY ID
-
 describe("getExerciseByIdService", () => {
   it("should return an exercise successfully", async () => {
     exerciseRepository.findLessonById.mockResolvedValue(mockLesson);
     exerciseRepository.findExerciseById.mockResolvedValue(mockExercise);
 
-    const result = await getExerciseByIdService(
-      lessonId,
-      exerciseId,
-    );
+    const result = await getExerciseByIdService(lessonId, exerciseId);
 
     expect(result).toEqual(mockExercise);
   });
@@ -177,8 +188,6 @@ describe("getExerciseByIdService", () => {
   });
 });
 
-// GET EXERCISES BY LESSON
-
 describe("getExercisesByLessonService", () => {
   it("should return exercises for a lesson", async () => {
     const exercises = [mockExercise];
@@ -194,9 +203,9 @@ describe("getExercisesByLessonService", () => {
   it("should throw 404 when lesson does not exist", async () => {
     exerciseRepository.findLessonById.mockResolvedValue(null);
 
-    await expect(
-      getExercisesByLessonService(lessonId),
-    ).rejects.toMatchObject({ statusCode: 404 });
+    await expect(getExercisesByLessonService(lessonId)).rejects.toMatchObject({
+      statusCode: 404,
+    });
   });
 
   it("should return an empty array when lesson has no exercises", async () => {
@@ -209,8 +218,6 @@ describe("getExercisesByLessonService", () => {
   });
 });
 
-// UPDATE EXERCISE
-
 describe("updateExerciseService", () => {
   it("should update an exercise successfully", async () => {
     const updatedExercise = {
@@ -222,11 +229,9 @@ describe("updateExerciseService", () => {
     exerciseRepository.findExerciseById.mockResolvedValue(mockExercise);
     exerciseRepository.updateExercise.mockResolvedValue(updatedExercise);
 
-    const result = await updateExerciseService(
-      exerciseId,
-      lessonId,
-      { title: "Updated Title" },
-    );
+    const result = await updateExerciseService(exerciseId, lessonId, {
+      title: "Updated Title",
+    });
 
     expect(result).toEqual(updatedExercise);
   });
@@ -235,7 +240,9 @@ describe("updateExerciseService", () => {
     exerciseRepository.findLessonById.mockResolvedValue(null);
 
     await expect(
-      updateExerciseService(exerciseId, lessonId, { title: "Updated" }),
+      updateExerciseService(exerciseId, lessonId, {
+        title: "Updated",
+      }),
     ).rejects.toMatchObject({ statusCode: 404 });
   });
 
@@ -244,7 +251,9 @@ describe("updateExerciseService", () => {
     exerciseRepository.findExerciseById.mockResolvedValue(null);
 
     await expect(
-      updateExerciseService(exerciseId, lessonId, { title: "Updated" }),
+      updateExerciseService(exerciseId, lessonId, {
+        title: "Updated",
+      }),
     ).rejects.toMatchObject({ statusCode: 404 });
   });
 
@@ -256,7 +265,9 @@ describe("updateExerciseService", () => {
     });
 
     await expect(
-      updateExerciseService(exerciseId, lessonId, { title: "Updated" }),
+      updateExerciseService(exerciseId, lessonId, {
+        title: "Updated",
+      }),
     ).rejects.toMatchObject({ statusCode: 404 });
   });
 
@@ -268,7 +279,9 @@ describe("updateExerciseService", () => {
     });
 
     await expect(
-      updateExerciseService(exerciseId, lessonId, { title: "Updated" }),
+      updateExerciseService(exerciseId, lessonId, {
+        title: "Updated",
+      }),
     ).rejects.toMatchObject({ statusCode: 409 });
   });
 
@@ -278,27 +291,22 @@ describe("updateExerciseService", () => {
     exerciseRepository.updateExercise.mockResolvedValue(null);
 
     await expect(
-      updateExerciseService(exerciseId, lessonId, { title: "Updated" }),
+      updateExerciseService(exerciseId, lessonId, {
+        title: "Updated",
+      }),
     ).rejects.toMatchObject({ statusCode: 404 });
   });
 });
 
-// REORDER EXERCISES
-
 describe("reorderExercisesService", () => {
   it("should reorder exercises successfully", async () => {
     exerciseRepository.findLessonById.mockResolvedValue(mockLesson);
-    exerciseRepository.getExercisesByLesson.mockResolvedValue([
-      mockExercise,
-    ]);
+    exerciseRepository.getExercisesByLesson.mockResolvedValue([mockExercise]);
     exerciseRepository.reorderExercises.mockResolvedValue([
       { ...mockExercise, position: 0 },
     ]);
 
-    const result = await reorderExercisesService(
-      lessonId,
-      mockReorderData,
-    );
+    const result = await reorderExercisesService(lessonId, mockReorderData);
 
     expect(result).toHaveLength(1);
     expect(exerciseRepository.reorderExercises).toHaveBeenCalledWith(
@@ -309,9 +317,7 @@ describe("reorderExercisesService", () => {
 
   it("should reject an exercise that does not belong to the lesson", async () => {
     exerciseRepository.findLessonById.mockResolvedValue(mockLesson);
-    exerciseRepository.getExercisesByLesson.mockResolvedValue([
-      mockExercise,
-    ]);
+    exerciseRepository.getExercisesByLesson.mockResolvedValue([mockExercise]);
 
     await expect(
       reorderExercisesService(lessonId, [
@@ -373,17 +379,13 @@ describe("reorderExercisesService", () => {
     ]);
 
     await expect(
-      reorderExercisesService(lessonId, [
-        { exerciseId, position: 0 },
-      ]),
+      reorderExercisesService(lessonId, [{ exerciseId, position: 0 }]),
     ).rejects.toMatchObject({ statusCode: 400 });
   });
 
   it("should throw when repository cannot reorder exercises", async () => {
     exerciseRepository.findLessonById.mockResolvedValue(mockLesson);
-    exerciseRepository.getExercisesByLesson.mockResolvedValue([
-      mockExercise,
-    ]);
+    exerciseRepository.getExercisesByLesson.mockResolvedValue([mockExercise]);
     exerciseRepository.reorderExercises.mockResolvedValue(null);
 
     await expect(
@@ -391,8 +393,6 @@ describe("reorderExercisesService", () => {
     ).rejects.toMatchObject({ statusCode: 500 });
   });
 });
-
-// PUBLISH EXERCISE
 
 describe("publishExerciseService", () => {
   const preparePublishMocks = () => {
@@ -564,8 +564,6 @@ describe("publishExerciseService", () => {
   });
 });
 
-// ARCHIVE EXERCISE
-
 describe("archiveExerciseService", () => {
   it("should archive an exercise successfully", async () => {
     exerciseRepository.findLessonById.mockResolvedValue(mockLesson);
@@ -619,8 +617,6 @@ describe("archiveExerciseService", () => {
   });
 });
 
-// DELETE EXERCISE
-
 describe("deleteExerciseService", () => {
   it("should delete a draft exercise successfully", async () => {
     exerciseRepository.findLessonById.mockResolvedValue(mockLesson);
@@ -630,9 +626,7 @@ describe("deleteExerciseService", () => {
     const result = await deleteExerciseService(lessonId, exerciseId);
 
     expect(result).toEqual(mockExercise);
-    expect(exerciseRepository.deleteExercise).toHaveBeenCalledWith(
-      exerciseId,
-    );
+    expect(exerciseRepository.deleteExercise).toHaveBeenCalledWith(exerciseId);
   });
 
   it("should reject deletion of a published exercise", async () => {
@@ -676,5 +670,407 @@ describe("deleteExerciseService", () => {
     await expect(
       deleteExerciseService(lessonId, exerciseId),
     ).rejects.toMatchObject({ statusCode: 500 });
+  });
+});
+
+describe("createExerciseLanguageService", () => {
+  it("should create a language configuration successfully", async () => {
+    exerciseRepository.findLessonById.mockResolvedValue(mockLesson);
+    exerciseRepository.findExerciseById.mockResolvedValue(mockExercise);
+    exerciseRepository.createExerciseLanguage.mockResolvedValue(mockLanguage);
+
+    const result = await createExerciseLanguageService(
+      lessonId,
+      exerciseId,
+      mockLanguageData,
+    );
+
+    expect(result).toEqual(mockLanguage);
+    expect(exerciseRepository.createExerciseLanguage).toHaveBeenCalledWith(
+      exerciseId,
+      mockLanguageData,
+    );
+  });
+
+  it("should throw 404 when lesson does not exist", async () => {
+    exerciseRepository.findLessonById.mockResolvedValue(null);
+
+    await expect(
+      createExerciseLanguageService(lessonId, exerciseId, mockLanguageData),
+    ).rejects.toMatchObject({ statusCode: 404 });
+
+    expect(exerciseRepository.createExerciseLanguage).not.toHaveBeenCalled();
+  });
+
+  it("should throw 404 when exercise does not exist", async () => {
+    exerciseRepository.findLessonById.mockResolvedValue(mockLesson);
+    exerciseRepository.findExerciseById.mockResolvedValue(null);
+
+    await expect(
+      createExerciseLanguageService(lessonId, exerciseId, mockLanguageData),
+    ).rejects.toMatchObject({ statusCode: 404 });
+
+    expect(exerciseRepository.createExerciseLanguage).not.toHaveBeenCalled();
+  });
+
+  it("should reject creation for a published exercise", async () => {
+    exerciseRepository.findLessonById.mockResolvedValue(mockLesson);
+    exerciseRepository.findExerciseById.mockResolvedValue({
+      ...mockExercise,
+      status: "published",
+    });
+
+    await expect(
+      createExerciseLanguageService(lessonId, exerciseId, mockLanguageData),
+    ).rejects.toMatchObject({ statusCode: 409 });
+  });
+
+  it("should reject creation for an archived exercise", async () => {
+    exerciseRepository.findLessonById.mockResolvedValue(mockLesson);
+    exerciseRepository.findExerciseById.mockResolvedValue({
+      ...mockExercise,
+      status: "archived",
+    });
+
+    await expect(
+      createExerciseLanguageService(lessonId, exerciseId, mockLanguageData),
+    ).rejects.toMatchObject({ statusCode: 409 });
+  });
+
+  it("should reject an exercise belonging to another lesson", async () => {
+    exerciseRepository.findLessonById.mockResolvedValue(mockLesson);
+    exerciseRepository.findExerciseById.mockResolvedValue({
+      ...mockExercise,
+      lesson_id: "another-lesson",
+    });
+
+    await expect(
+      createExerciseLanguageService(lessonId, exerciseId, mockLanguageData),
+    ).rejects.toMatchObject({ statusCode: 404 });
+  });
+});
+
+describe("getExerciseLanguagesService", () => {
+  it("should return all language configurations", async () => {
+    exerciseRepository.findLessonById.mockResolvedValue(mockLesson);
+    exerciseRepository.findExerciseById.mockResolvedValue(mockExercise);
+    exerciseRepository.getExerciseLanguages.mockResolvedValue([mockLanguage]);
+
+    const result = await getExerciseLanguagesService(lessonId, exerciseId);
+
+    expect(result).toEqual([mockLanguage]);
+    expect(exerciseRepository.getExerciseLanguages).toHaveBeenCalledWith(
+      exerciseId,
+    );
+  });
+
+  it("should return an empty array when no languages exist", async () => {
+    exerciseRepository.findLessonById.mockResolvedValue(mockLesson);
+    exerciseRepository.findExerciseById.mockResolvedValue(mockExercise);
+    exerciseRepository.getExerciseLanguages.mockResolvedValue([]);
+
+    const result = await getExerciseLanguagesService(lessonId, exerciseId);
+
+    expect(result).toEqual([]);
+  });
+
+  it("should throw 404 when lesson does not exist", async () => {
+    exerciseRepository.findLessonById.mockResolvedValue(null);
+
+    await expect(
+      getExerciseLanguagesService(lessonId, exerciseId),
+    ).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it("should throw 404 when exercise does not exist", async () => {
+    exerciseRepository.findLessonById.mockResolvedValue(mockLesson);
+    exerciseRepository.findExerciseById.mockResolvedValue(null);
+
+    await expect(
+      getExerciseLanguagesService(lessonId, exerciseId),
+    ).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it("should allow listing languages for a published exercise", async () => {
+    exerciseRepository.findLessonById.mockResolvedValue(mockLesson);
+    exerciseRepository.findExerciseById.mockResolvedValue({
+      ...mockExercise,
+      status: "published",
+    });
+    exerciseRepository.getExerciseLanguages.mockResolvedValue([mockLanguage]);
+
+    const result = await getExerciseLanguagesService(lessonId, exerciseId);
+
+    expect(result).toEqual([mockLanguage]);
+  });
+});
+
+describe("getExerciseLanguageByIdService", () => {
+  it("should return a language configuration by ID", async () => {
+    exerciseRepository.findLessonById.mockResolvedValue(mockLesson);
+    exerciseRepository.findExerciseById.mockResolvedValue(mockExercise);
+    exerciseRepository.findExerciseLanguageById.mockResolvedValue(mockLanguage);
+
+    const result = await getExerciseLanguageByIdService(
+      lessonId,
+      exerciseId,
+      languageId,
+    );
+
+    expect(result).toEqual(mockLanguage);
+    expect(exerciseRepository.findExerciseLanguageById).toHaveBeenCalledWith(
+      exerciseId,
+      languageId,
+    );
+  });
+
+  it("should throw 404 when language configuration does not exist", async () => {
+    exerciseRepository.findLessonById.mockResolvedValue(mockLesson);
+    exerciseRepository.findExerciseById.mockResolvedValue(mockExercise);
+    exerciseRepository.findExerciseLanguageById.mockResolvedValue(null);
+
+    await expect(
+      getExerciseLanguageByIdService(lessonId, exerciseId, languageId),
+    ).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it("should throw 404 when exercise does not exist", async () => {
+    exerciseRepository.findLessonById.mockResolvedValue(mockLesson);
+    exerciseRepository.findExerciseById.mockResolvedValue(null);
+
+    await expect(
+      getExerciseLanguageByIdService(lessonId, exerciseId, languageId),
+    ).rejects.toMatchObject({ statusCode: 404 });
+
+    expect(exerciseRepository.findExerciseLanguageById).not.toHaveBeenCalled();
+  });
+
+  it("should allow retrieving a language configuration for a published exercise", async () => {
+    exerciseRepository.findLessonById.mockResolvedValue(mockLesson);
+    exerciseRepository.findExerciseById.mockResolvedValue({
+      ...mockExercise,
+      status: "published",
+    });
+    exerciseRepository.findExerciseLanguageById.mockResolvedValue(mockLanguage);
+
+    const result = await getExerciseLanguageByIdService(
+      lessonId,
+      exerciseId,
+      languageId,
+    );
+
+    expect(result).toEqual(mockLanguage);
+  });
+});
+
+describe("updateExerciseLanguageService", () => {
+  it("should update a language configuration successfully", async () => {
+    const updateData = {
+      runtimeVersion: "25",
+    };
+
+    const updatedLanguage = {
+      ...mockLanguage,
+      runtime_version: "25",
+    };
+
+    exerciseRepository.findLessonById.mockResolvedValue(mockLesson);
+    exerciseRepository.findExerciseById.mockResolvedValue(mockExercise);
+    exerciseRepository.updateExerciseLanguageById.mockResolvedValue(
+      updatedLanguage,
+    );
+
+    const result = await updateExerciseLanguageService(
+      lessonId,
+      exerciseId,
+      languageId,
+      updateData,
+    );
+
+    expect(result).toEqual(updatedLanguage);
+    expect(exerciseRepository.updateExerciseLanguageById).toHaveBeenCalledWith(
+      exerciseId,
+      languageId,
+      updateData,
+    );
+  });
+
+  it("should throw 404 when lesson does not exist", async () => {
+    exerciseRepository.findLessonById.mockResolvedValue(null);
+
+    await expect(
+      updateExerciseLanguageService(lessonId, exerciseId, languageId, {
+        runtimeVersion: "25",
+      }),
+    ).rejects.toMatchObject({ statusCode: 404 });
+
+    expect(
+      exerciseRepository.updateExerciseLanguageById,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("should throw 404 when exercise does not exist", async () => {
+    exerciseRepository.findLessonById.mockResolvedValue(mockLesson);
+    exerciseRepository.findExerciseById.mockResolvedValue(null);
+
+    await expect(
+      updateExerciseLanguageService(lessonId, exerciseId, languageId, {
+        runtimeVersion: "25",
+      }),
+    ).rejects.toMatchObject({ statusCode: 404 });
+
+    expect(
+      exerciseRepository.updateExerciseLanguageById,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("should reject updates to a published exercise", async () => {
+    exerciseRepository.findLessonById.mockResolvedValue(mockLesson);
+    exerciseRepository.findExerciseById.mockResolvedValue({
+      ...mockExercise,
+      status: "published",
+    });
+
+    await expect(
+      updateExerciseLanguageService(lessonId, exerciseId, languageId, {
+        runtimeVersion: "25",
+      }),
+    ).rejects.toMatchObject({ statusCode: 409 });
+
+    expect(
+      exerciseRepository.updateExerciseLanguageById,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("should reject updates to an archived exercise", async () => {
+    exerciseRepository.findLessonById.mockResolvedValue(mockLesson);
+    exerciseRepository.findExerciseById.mockResolvedValue({
+      ...mockExercise,
+      status: "archived",
+    });
+
+    await expect(
+      updateExerciseLanguageService(lessonId, exerciseId, languageId, {
+        runtimeVersion: "25",
+      }),
+    ).rejects.toMatchObject({ statusCode: 409 });
+
+    expect(
+      exerciseRepository.updateExerciseLanguageById,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("should throw 404 when language configuration does not exist", async () => {
+    exerciseRepository.findLessonById.mockResolvedValue(mockLesson);
+    exerciseRepository.findExerciseById.mockResolvedValue(mockExercise);
+    exerciseRepository.updateExerciseLanguageById.mockResolvedValue(null);
+
+    await expect(
+      updateExerciseLanguageService(lessonId, exerciseId, languageId, {
+        runtimeVersion: "25",
+      }),
+    ).rejects.toMatchObject({ statusCode: 404 });
+
+    expect(exerciseRepository.updateExerciseLanguageById).toHaveBeenCalledWith(
+      exerciseId,
+      languageId,
+      {
+        runtimeVersion: "25",
+      },
+    );
+  });
+});
+
+describe("deleteExerciseLanguageService", () => {
+  it("should delete a language configuration successfully", async () => {
+    exerciseRepository.findLessonById.mockResolvedValue(mockLesson);
+    exerciseRepository.findExerciseById.mockResolvedValue(mockExercise);
+    exerciseRepository.deleteExerciseLanguageById.mockResolvedValue(
+      mockLanguage,
+    );
+
+    const result = await deleteExerciseLanguageService(
+      lessonId,
+      exerciseId,
+      languageId,
+    );
+
+    expect(result).toEqual(mockLanguage);
+    expect(exerciseRepository.deleteExerciseLanguageById).toHaveBeenCalledWith(
+      exerciseId,
+      languageId,
+    );
+  });
+
+  it("should throw 404 when lesson does not exist", async () => {
+    exerciseRepository.findLessonById.mockResolvedValue(null);
+
+    await expect(
+      deleteExerciseLanguageService(lessonId, exerciseId, languageId),
+    ).rejects.toMatchObject({ statusCode: 404 });
+
+    expect(
+      exerciseRepository.deleteExerciseLanguageById,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("should throw 404 when exercise does not exist", async () => {
+    exerciseRepository.findLessonById.mockResolvedValue(mockLesson);
+    exerciseRepository.findExerciseById.mockResolvedValue(null);
+
+    await expect(
+      deleteExerciseLanguageService(lessonId, exerciseId, languageId),
+    ).rejects.toMatchObject({ statusCode: 404 });
+
+    expect(
+      exerciseRepository.deleteExerciseLanguageById,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("should reject deletion from a published exercise", async () => {
+    exerciseRepository.findLessonById.mockResolvedValue(mockLesson);
+    exerciseRepository.findExerciseById.mockResolvedValue({
+      ...mockExercise,
+      status: "published",
+    });
+
+    await expect(
+      deleteExerciseLanguageService(lessonId, exerciseId, languageId),
+    ).rejects.toMatchObject({ statusCode: 409 });
+
+    expect(
+      exerciseRepository.deleteExerciseLanguageById,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("should reject deletion from an archived exercise", async () => {
+    exerciseRepository.findLessonById.mockResolvedValue(mockLesson);
+    exerciseRepository.findExerciseById.mockResolvedValue({
+      ...mockExercise,
+      status: "archived",
+    });
+
+    await expect(
+      deleteExerciseLanguageService(lessonId, exerciseId, languageId),
+    ).rejects.toMatchObject({ statusCode: 409 });
+
+    expect(
+      exerciseRepository.deleteExerciseLanguageById,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("should throw 404 when language configuration does not exist", async () => {
+    exerciseRepository.findLessonById.mockResolvedValue(mockLesson);
+    exerciseRepository.findExerciseById.mockResolvedValue(mockExercise);
+    exerciseRepository.deleteExerciseLanguageById.mockResolvedValue(null);
+
+    await expect(
+      deleteExerciseLanguageService(lessonId, exerciseId, languageId),
+    ).rejects.toMatchObject({ statusCode: 404 });
+
+    expect(exerciseRepository.deleteExerciseLanguageById).toHaveBeenCalledWith(
+      exerciseId,
+      languageId,
+    );
   });
 });

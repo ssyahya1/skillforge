@@ -43,6 +43,11 @@ export const exerciseParamsSchema = z.strictObject({
   lessonId: lessonIdSchema,
   exerciseId: exerciseIdSchema,
 });
+export const exerciseLanguageParamsSchema = z.strictObject({
+  lessonId: lessonIdSchema,
+  exerciseId: exerciseIdSchema,
+  languageId: languageIdSchema,
+});
 
 export const createExerciseSchema = z.strictObject({
   title: z.string().trim().min(1).max(150),
@@ -51,7 +56,6 @@ export const createExerciseSchema = z.strictObject({
   difficulty: difficultySchema,
   position: z.number().int().min(0),
 });
-
 export const updateExerciseSchema = createExerciseSchema
   .partial()
   .refine(
@@ -66,9 +70,13 @@ export const createExerciseLanguageSchema = z.strictObject({
   starterCode: z.string().trim().min(1),
   entryPoint: z.string().trim().nullable().optional(),
 });
-
-export const updateExerciseLanguageSchema = createExerciseLanguageSchema
-  .partial()
+export const updateExerciseLanguageSchema = z
+  .strictObject({
+    runtimeVersion: z.string().trim().min(1).optional(),
+    executionMode: executionModeSchema.optional(),
+    starterCode: z.string().trim().min(1).optional(),
+    entryPoint: z.string().trim().nullable().optional(),
+  })
   .refine(
     (data) => Object.keys(data).length > 0,
     "At least one field must be provided.",

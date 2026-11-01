@@ -1,4 +1,3 @@
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../src/database/pool.js", () => ({
@@ -18,10 +17,10 @@ import {
   updateExerciseStatus,
   deleteExercise,
   createExerciseLanguage,
-  findLanguageById,
+  findExerciseLanguageById,
   getExerciseLanguages,
-  updateExerciseLanguage,
-  deleteExerciseLanguage,
+  updateExerciseLanguageById,
+  deleteExerciseLanguageById,
   createTestCase,
   findTestCaseById,
   getTestCasesByExercise,
@@ -38,14 +37,11 @@ import {
   getVisibleTestCases,
   reorderExercises,
 } from "../src/modules/exercises/exerciseRepository.js";
+
 describe("Exercise Repository", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
-
-
-
-
 
   describe("findLessonById", () => {
     it("should return a lesson when found", async () => {
@@ -69,10 +65,6 @@ describe("Exercise Repository", () => {
       expect(result).toBeNull();
     });
   });
-
-
-
-
 
   describe("findExerciseById", () => {
     it("should return an exercise when found", async () => {
@@ -116,10 +108,7 @@ describe("Exercise Repository", () => {
         rows: [createdExercise],
       });
 
-      const result = await createExercise(
-        "lesson-1",
-        exerciseData
-      );
+      const result = await createExercise("lesson-1", exerciseData);
 
       expect(result).toEqual(createdExercise);
 
@@ -132,7 +121,7 @@ describe("Exercise Repository", () => {
           "Learn arrays",
           "beginner",
           0,
-        ]
+        ],
       );
     });
   });
@@ -213,10 +202,7 @@ describe("Exercise Repository", () => {
         rows: [exercise],
       });
 
-      const result = await updateExerciseStatus(
-        "exercise-1",
-        "archived"
-      );
+      const result = await updateExerciseStatus("exercise-1", "archived");
 
       expect(result).toEqual(exercise);
     });
@@ -232,9 +218,7 @@ describe("Exercise Repository", () => {
 
       expect(result).toEqual({ id: "exercise-1" });
 
-      expect(pool.query.mock.calls[0][0]).toContain(
-        "status = 'draft'"
-      );
+      expect(pool.query.mock.calls[0][0]).toContain("status = 'draft'");
     });
 
     it("should return null when no draft exercise is deleted", async () => {
@@ -245,10 +229,6 @@ describe("Exercise Repository", () => {
       expect(result).toBeNull();
     });
   });
-
-
-
-
 
   describe("createExerciseLanguage", () => {
     it("should create a language configuration", async () => {
@@ -262,58 +242,95 @@ describe("Exercise Repository", () => {
       const language = {
         id: "language-1",
         exercise_id: "exercise-1",
-        ...languageData,
+        language: "javascript",
+        runtime_version: "24",
+        execution_mode: "stdin",
+        starter_code: "console.log('Hello')",
+        entry_point: null,
       };
 
       pool.query.mockResolvedValueOnce({
         rows: [language],
       });
 
-      const result = await createExerciseLanguage(
-        "exercise-1",
-        languageData
-      );
+      const result = await createExerciseLanguage("exercise-1", languageData);
 
       expect(result).toEqual(language);
+
+      expect(pool.query).toHaveBeenCalledWith(
+        expect.stringContaining("INSERT INTO public.exercise_languages"),
+        [
+          "exercise-1",
+          "javascript",
+          "24",
+          "stdin",
+          "console.log('Hello')",
+          null,
+        ],
+      );
+    });
+
+    it("should pass the configured entry point when provided", async () => {
+      const languageData = {
+        language: "javascript",
+        runtimeVersion: "24",
+        executionMode: "function",
+        starterCode: "function solution() {}",
+        entryPoint: "solution",
+      };
+
+      pool.query.mockResolvedValueOnce({
+        rows: [{ id: "language-1" }],
+      });
+
+      await createExerciseLanguage("exercise-1", languageData);
 
       expect(pool.query.mock.calls[0][1]).toEqual([
         "exercise-1",
         "javascript",
         "24",
-        "stdin",
-        "console.log('Hello')",
-        null,
+        "function",
+        "function solution() {}",
+        "solution",
       ]);
     });
   });
 
-  describe("findLanguageById", () => {
-    it("should return a language configuration", async () => {
-      const language = { id: "language-1" };
+  describe("findExerciseLanguageById", () => {
+    it("should return a language configuration scoped to its exercise", async () => {
+      const language = {
+        id: "language-1",
+        exercise_id: "exercise-1",
+        language: "javascript",
+      };
 
       pool.query.mockResolvedValueOnce({
         rows: [language],
       });
 
-      const result = await findLanguageById("language-1");
+      const result = await findExerciseLanguageById("exercise-1", "language-1");
 
       expect(result).toEqual(language);
+      expect(pool.query).toHaveBeenCalledWith(
+        expect.stringContaining("exercise_id"),
+        ["exercise-1", "language-1"],
+      );
     });
 
-    it("should return null when language does not exist", async () => {
+    it("should return null when the language configuration does not exist", async () => {
       pool.query.mockResolvedValueOnce({ rows: [] });
 
-      const result = await findLanguageById("language-1");
+      const result = await findExerciseLanguageById("exercise-1", "language-1");
 
       expect(result).toBeNull();
     });
   });
 
   describe("getExerciseLanguages", () => {
-    it("should return all language configurations", async () => {
+    it("should return all language configurations for an exercise", async () => {
       const languages = [
-        { language: "javascript" },
-        { language: "python" },
+        { id: "language-1", language: "javascript" },
+        { id: "language-2", language: "python" },
       ];
 
       pool.query.mockResolvedValueOnce({
@@ -324,54 +341,118 @@ describe("Exercise Repository", () => {
 
       expect(result).toEqual(languages);
       expect(result).toHaveLength(2);
+      expect(pool.query.mock.calls[0][1]).toEqual(["exercise-1"]);
+    });
+
+    it("should return an empty array when an exercise has no language configurations", async () => {
+      pool.query.mockResolvedValueOnce({ rows: [] });
+
+      const result = await getExerciseLanguages("exercise-1");
+
+      expect(result).toEqual([]);
     });
   });
 
-  describe("updateExerciseLanguage", () => {
-    it("should update allowed language fields", async () => {
-      const language = {
+  describe("updateExerciseLanguageById", () => {
+    it("should update allowed language configuration fields", async () => {
+      const updatedLanguage = {
         id: "language-1",
+        exercise_id: "exercise-1",
         runtime_version: "24",
       };
 
       pool.query.mockResolvedValueOnce({
-        rows: [language],
+        rows: [updatedLanguage],
       });
 
-      const result = await updateExerciseLanguage(
+      const result = await updateExerciseLanguageById(
+        "exercise-1",
         "language-1",
-        { runtimeVersion: "24" }
+        { runtimeVersion: "24" },
       );
 
-      expect(result).toEqual(language);
+      expect(result).toEqual(updatedLanguage);
+
+      expect(pool.query).toHaveBeenCalledWith(
+        expect.stringContaining("UPDATE public.exercise_languages"),
+        ["24", "exercise-1", "language-1"],
+      );
+    });
+
+    it("should update multiple allowed fields", async () => {
+      pool.query.mockResolvedValueOnce({
+        rows: [{ id: "language-1" }],
+      });
+
+      await updateExerciseLanguageById("exercise-1", "language-1", {
+        runtimeVersion: "24",
+        entryPoint: "solution",
+      });
+
+      expect(pool.query).toHaveBeenCalledOnce();
+
+      const [query, values] = pool.query.mock.calls[0];
+
+      expect(query).toContain("runtime_version");
+      expect(query).toContain("entry_point");
+      expect(values).toEqual(["24", "solution", "exercise-1", "language-1"]);
     });
 
     it("should reject fields outside the allowlist", async () => {
-      const result = await updateExerciseLanguage(
+      const result = await updateExerciseLanguageById(
+        "exercise-1",
         "language-1",
-        { language: "python" }
+        { language: "python" },
       );
 
       expect(result).toBeNull();
       expect(pool.query).not.toHaveBeenCalled();
     });
-  });
 
-  describe("deleteExerciseLanguage", () => {
-    it("should delete a language configuration", async () => {
-      pool.query.mockResolvedValueOnce({
-        rows: [{ id: "language-1" }],
-      });
+    it("should return null when the language configuration does not exist", async () => {
+      pool.query.mockResolvedValueOnce({ rows: [] });
 
-      const result = await deleteExerciseLanguage("language-1");
+      const result = await updateExerciseLanguageById(
+        "exercise-1",
+        "language-1",
+        { runtimeVersion: "24" },
+      );
 
-      expect(result).toEqual({ id: "language-1" });
+      expect(result).toBeNull();
     });
   });
 
+  describe("deleteExerciseLanguageById", () => {
+    it("should delete a language configuration scoped to its exercise", async () => {
+      const deletedLanguage = { id: "language-1" };
 
+      pool.query.mockResolvedValueOnce({
+        rows: [deletedLanguage],
+      });
 
+      const result = await deleteExerciseLanguageById(
+        "exercise-1",
+        "language-1",
+      );
 
+      expect(result).toEqual(deletedLanguage);
+      expect(pool.query).toHaveBeenCalledWith(
+        expect.stringContaining("DELETE FROM public.exercise_languages"),
+        ["exercise-1", "language-1"],
+      );
+    });
+
+    it("should return null when the language configuration does not exist", async () => {
+      pool.query.mockResolvedValueOnce({ rows: [] });
+
+      const result = await deleteExerciseLanguageById(
+        "exercise-1",
+        "language-1",
+      );
+
+      expect(result).toBeNull();
+    });
+  });
 
   describe("createTestCase", () => {
     it("should create a test case", async () => {
@@ -388,10 +469,7 @@ describe("Exercise Repository", () => {
         rows: [testCase],
       });
 
-      const result = await createTestCase(
-        "exercise-1",
-        testCaseData
-      );
+      const result = await createTestCase("exercise-1", testCaseData);
 
       expect(result).toEqual(testCase);
 
@@ -474,10 +552,6 @@ describe("Exercise Repository", () => {
     });
   });
 
-
-
-
-
   describe("publishing requirement counts", () => {
     it("should count exercise languages", async () => {
       pool.query.mockResolvedValueOnce({
@@ -510,10 +584,6 @@ describe("Exercise Repository", () => {
     });
   });
 
-
-
-
-
   describe("saveLanguageSolution", () => {
     it("should save a private language solution", async () => {
       pool.query.mockResolvedValueOnce({
@@ -522,7 +592,7 @@ describe("Exercise Repository", () => {
 
       const result = await saveLanguageSolution(
         "language-1",
-        "console.log('solution')"
+        "console.log('solution')",
       );
 
       expect(result).toEqual({
@@ -548,24 +618,16 @@ describe("Exercise Repository", () => {
     });
   });
 
-
-
-
-
   describe("getPublishedExercisesByLesson", () => {
     it("should return published exercises only", async () => {
       pool.query.mockResolvedValueOnce({
         rows: [{ id: "exercise-1", status: "published" }],
       });
 
-      const result = await getPublishedExercisesByLesson(
-        "lesson-1"
-      );
+      const result = await getPublishedExercisesByLesson("lesson-1");
 
       expect(result).toHaveLength(1);
-      expect(pool.query.mock.calls[0][0]).toContain(
-        "status = 'published'"
-      );
+      expect(pool.query.mock.calls[0][0]).toContain("status = 'published'");
     });
   });
 
@@ -580,9 +642,7 @@ describe("Exercise Repository", () => {
         rows: [exercise],
       });
 
-      const result = await getStudentExerciseDetails(
-        "exercise-1"
-      );
+      const result = await getStudentExerciseDetails("exercise-1");
 
       expect(result).toEqual(exercise);
     });
@@ -590,9 +650,7 @@ describe("Exercise Repository", () => {
     it("should return null when exercise is not published", async () => {
       pool.query.mockResolvedValueOnce({ rows: [] });
 
-      const result = await getStudentExerciseDetails(
-        "exercise-1"
-      );
+      const result = await getStudentExerciseDetails("exercise-1");
 
       expect(result).toBeNull();
     });
@@ -604,42 +662,28 @@ describe("Exercise Repository", () => {
         rows: [{ language: "javascript" }],
       });
 
-      const result = await getStudentExerciseLanguages(
-        "exercise-1"
-      );
+      const result = await getStudentExerciseLanguages("exercise-1");
 
       expect(result).toHaveLength(1);
-      expect(pool.query.mock.calls[0][0]).toContain(
-        "status = 'published'"
-      );
+      expect(pool.query.mock.calls[0][0]).toContain("status = 'published'");
     });
   });
 
   describe("getVisibleTestCases", () => {
     it("should return visible test cases only", async () => {
       pool.query.mockResolvedValueOnce({
-        rows: [
-          { id: "test-1", visibility: "visible" },
-        ],
+        rows: [{ id: "test-1", visibility: "visible" }],
       });
 
       const result = await getVisibleTestCases("exercise-1");
 
       expect(result).toHaveLength(1);
 
-      expect(pool.query.mock.calls[0][0]).toContain(
-        "visibility = 'visible'"
-      );
+      expect(pool.query.mock.calls[0][0]).toContain("visibility = 'visible'");
 
-      expect(pool.query.mock.calls[0][0]).not.toContain(
-        "solution_code"
-      );
+      expect(pool.query.mock.calls[0][0]).not.toContain("solution_code");
     });
   });
-
-
-
-
 
   describe("reorderExercises", () => {
     it("should reorder exercises in a transaction", async () => {
@@ -692,7 +736,7 @@ describe("Exercise Repository", () => {
         reorderExercises("lesson-1", [
           { exerciseId: "exercise-1", position: 0 },
           { exerciseId: "exercise-1", position: 1 },
-        ])
+        ]),
       ).rejects.toThrow("Duplicate exercise IDs or positions.");
 
       expect(client.query).toHaveBeenCalledWith("ROLLBACK");
@@ -707,20 +751,16 @@ describe("Exercise Repository", () => {
 
       pool.connect.mockResolvedValueOnce(client);
 
-      client.query
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({
-          rows: [
-            { id: "exercise-1", position: 0 },
-          ],
-        });
+      client.query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({
+        rows: [{ id: "exercise-1", position: 0 }],
+      });
 
       await expect(
         reorderExercises("lesson-1", [
           { exerciseId: "exercise-2", position: 0 },
-        ])
+        ]),
       ).rejects.toThrow(
-        "The reorder request must include every exercise in the lesson."
+        "The reorder request must include every exercise in the lesson.",
       );
 
       expect(client.query).toHaveBeenCalledWith("ROLLBACK");
