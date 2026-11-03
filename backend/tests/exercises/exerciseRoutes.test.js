@@ -1,7 +1,7 @@
 
 import { describe, it, expect, vi } from "vitest";
 
-vi.mock("../src/modules/exercises/exerciseController.js", () => ({
+vi.mock("../../src/modules/exercises/exerciseController.js", () => ({
   createExerciseController: vi.fn(),
   getExerciseByIdController: vi.fn(),
   getExercisesByLessonController: vi.fn(),
@@ -18,16 +18,16 @@ vi.mock("../src/modules/exercises/exerciseController.js", () => ({
   deleteExerciseLanguageController: vi.fn(),
 }));
 
-vi.mock("../src/middleware/requireAuth.js", () => ({
+vi.mock("../../src/middleware/requireAuth.js", () => ({
   requireAuth: vi.fn(),
 }));
 
-vi.mock("../src/middleware/requireAdmin.js", () => ({
+vi.mock("../../src/middleware/requireAdmin.js", () => ({
   requireAdmin: vi.fn(),
 }));
 
-import router from "../src/modules/exercises/exerciseRoutes.js";
-import * as exerciseController from "../src/modules/exercises/exerciseController.js";
+import router from "../../src/modules/exercises/exerciseRoutes.js";
+import * as exerciseController from "../../src/modules/exercises/exerciseController.js";
 
 describe("Exercise Routes", () => {
   const routes = router.stack.filter((layer) => layer.route);
@@ -179,3 +179,4 @@ describe("Exercise Routes", () => {
     });
   });
 });
+

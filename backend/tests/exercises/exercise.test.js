@@ -21,7 +21,7 @@ const mocks = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("../src/middleware/requireAuth.js", () => ({
+vi.mock("../../src/middleware/requireAuth.js", () => ({
   requireAuth: (req, res, next) => {
     if (mocks.authMode === "unauthenticated") {
       return res.status(401).json({
@@ -39,7 +39,7 @@ vi.mock("../src/middleware/requireAuth.js", () => ({
   },
 }));
 
-vi.mock("../src/middleware/requireAdmin.js", () => ({
+vi.mock("../../src/middleware/requireAdmin.js", () => ({
   requireAdmin: (req, res, next) => {
     if (mocks.authMode === "non-admin") {
       return res.status(403).json({
@@ -52,11 +52,11 @@ vi.mock("../src/middleware/requireAdmin.js", () => ({
   },
 }));
 
-vi.mock("../src/modules/exercises/exerciseService.js", () => ({
+vi.mock("../../src/modules/exercises/exerciseService.js", () => ({
   ...mocks.exerciseService,
 }));
 
-import app from "../src/app.js";
+import app from "../../src/app.js";
 
 const lessonId = "550e8400-e29b-41d4-a716-446655440000";
 const exerciseId = "550e8400-e29b-41d4-a716-446655440001";
@@ -620,3 +620,4 @@ describe("Exercise Management HTTP Integration", () => {
     });
   });
 });
+

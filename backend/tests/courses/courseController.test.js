@@ -21,7 +21,7 @@ const {
   restoreCourseServiceMock: vi.fn(),
 }));
 
-vi.mock("../src/modules/courses/courseService.js", () => ({
+vi.mock("../../src/modules/courses/courseService.js", () => ({
   createCourseService: createCourseServiceMock,
   getCoursesService: getCoursesServiceMock,
   getCourseByIdService: getCourseByIdServiceMock,
@@ -41,7 +41,7 @@ import {
   archiveCourseController,
   softDeleteCourseController,
   restoreCourseController,
-} from "../src/modules/courses/courseController.js";
+} from "../../src/modules/courses/courseController.js";
 
 const adminId = "test-admin-123";
 const courseId = "course-123";
@@ -434,3 +434,4 @@ describe("restoreCourseController", () => {
     expect(next).toHaveBeenCalledWith(error);
   });
 });
+

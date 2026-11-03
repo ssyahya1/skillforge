@@ -11,11 +11,11 @@ vi.mock("node-cron", () => ({
   },
 }));
 
-vi.mock("../src/modules/lessons/lessonService.js", () => ({
+vi.mock("../../src/modules/lessons/lessonService.js", () => ({
   purgeExpiredLessonService: mocks.purgeExpiredLessonService,
 }));
 
-import { startLessonPurgeJob } from "../src/jobs/lessonPurgeJob.js";
+import { startLessonPurgeJob } from "../../src/jobs/lessonPurgeJob.js";
 
 describe("lesson purge job", () => {
   let scheduledCallback;
@@ -126,3 +126,4 @@ describe("lesson purge job", () => {
     expect(scheduledTask.destroy).toHaveBeenCalledOnce();
   });
 });
+

@@ -7,15 +7,15 @@ const mocks = vi.hoisted(() => ({
   query: vi.fn(),
 }));
 
-vi.mock("../src/config/supabase.js", () => ({
+vi.mock("../../src/config/supabase.js", () => ({
   supabase: { auth: { getUser: mocks.getUser } },
 }));
 
-vi.mock("../src/database/pool.js", () => ({
+vi.mock("../../src/database/pool.js", () => ({
   pool: { query: mocks.query },
 }));
 
-import app from "../src/app.js";
+import app from "../../src/app.js";
 
 const testUser = {
   id: "test-admin-123",
@@ -759,3 +759,4 @@ describe("POST /api/admin/courses/:courseId/restore", () => {
     expect(res.status).toBe(500);
   });
 });
+

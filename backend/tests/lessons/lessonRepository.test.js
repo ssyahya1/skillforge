@@ -5,7 +5,7 @@ const { queryMock } = vi.hoisted(() => ({
   queryMock: vi.fn(),
 }));
 
-vi.mock("../src/database/pool.js", () => ({
+vi.mock("../../src/database/pool.js", () => ({
   pool: {
     query: queryMock,
   },
@@ -21,7 +21,7 @@ import {
   softDeleteLesson,
   restoreLesson,
   purgeExpiredLessons,
-} from "../src/modules/lessons/lessonRepository.js";
+} from "../../src/modules/lessons/lessonRepository.js";
 
 const courseId = "550e8400-e29b-41d4-a716-446655440000";
 const lessonId = "650e8400-e29b-41d4-a716-446655440000";
@@ -515,3 +515,4 @@ describe("purgeExpiredLessons", () => {
     );
   });
 });
+

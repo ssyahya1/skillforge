@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
   purgeExpiredLessons: vi.fn(),
 }));
 
-vi.mock("../src/modules/lessons/lessonRepository.js", () => mocks);
+vi.mock("../../src/modules/lessons/lessonRepository.js", () => mocks);
 
 import {
   createLessonService,
@@ -25,7 +25,7 @@ import {
   softDeleteLessonService,
   restoreLessonService,
   purgeExpiredLessonService,
-} from "../src/modules/lessons/lessonService.js";
+} from "../../src/modules/lessons/lessonService.js";
 
 const courseId = "11111111-1111-4111-8111-111111111111";
 const lessonId = "22222222-2222-4222-8222-222222222222";
@@ -617,3 +617,4 @@ describe("purgeExpiredLessonService", () => {
     });
   });
 });
+

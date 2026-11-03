@@ -3,11 +3,11 @@ const { query } = vi.hoisted(() => ({
   query: vi.fn(),
 }));
 
-vi.mock("../src/database/pool.js", () => ({
+vi.mock("../../src/database/pool.js", () => ({
   pool: { query },
 }));
 
-import { requireAdmin } from "../src/middleware/requireAdmin.js";
+import { requireAdmin } from "../../src/middleware/requireAdmin.js";
 
 
 
@@ -81,3 +81,4 @@ it("passes database errors to Express error handling", async () => {
   expect(res.status).not.toHaveBeenCalled();
 });
 });
+

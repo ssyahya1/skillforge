@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   getLessonByIdService: vi.fn(),
 }));
 
-vi.mock("../src/config/supabase.js", () => ({
+vi.mock("../../src/config/supabase.js", () => ({
   supabase: {
     auth: {
       getUser: mocks.getUser,
@@ -17,13 +17,13 @@ vi.mock("../src/config/supabase.js", () => ({
   },
 }));
 
-vi.mock("../src/database/pool.js", () => ({
+vi.mock("../../src/database/pool.js", () => ({
   pool: {
     query: mocks.query,
   },
 }));
 
-vi.mock("../src/modules/lessons/lessonService.js", () => ({
+vi.mock("../../src/modules/lessons/lessonService.js", () => ({
   createLessonService: vi.fn(),
   getLessonByIdService: mocks.getLessonByIdService,
   listLessonsService: vi.fn(),
@@ -34,7 +34,7 @@ vi.mock("../src/modules/lessons/lessonService.js", () => ({
   restoreLessonService: vi.fn(),
 }));
 
-import lessonRoutes from "../src/modules/lessons/lessonRoutes.js";
+import lessonRoutes from "../../src/modules/lessons/lessonRoutes.js";
 
 const courseId = "11111111-1111-4111-8111-111111111111";
 const lessonId = "22222222-2222-4222-8222-222222222222";
@@ -108,3 +108,4 @@ describe("Lesson authorization middleware contract", () => {
     );
   });
 });
+

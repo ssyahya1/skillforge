@@ -14,30 +14,30 @@ const mocks = vi.hoisted(() => ({
   restoreLessonService: vi.fn(),
 }));
 
-vi.mock("../src/middleware/requireAuth.js", () => ({
+vi.mock("../../src/middleware/requireAuth.js", () => ({
   requireAuth: (_req, _res, next) => next(),
 }));
 
-vi.mock("../src/middleware/requireAdmin.js", () => ({
+vi.mock("../../src/middleware/requireAdmin.js", () => ({
   requireAdmin: (_req, _res, next) => next(),
 }));
 
 // Keep unrelated route modules out of these focused lesson tests.
-vi.mock("../src/modules/auth/authRoutes.js", () => ({
+vi.mock("../../src/modules/auth/authRoutes.js", () => ({
   default: express.Router(),
 }));
 
-vi.mock("../src/modules/admin/adminRoutes.js", () => ({
+vi.mock("../../src/modules/admin/adminRoutes.js", () => ({
   default: express.Router(),
 }));
 
-vi.mock("../src/modules/courses/courseRoutes.js", () => ({
+vi.mock("../../src/modules/courses/courseRoutes.js", () => ({
   default: express.Router(),
 }));
 
-vi.mock("../src/modules/lessons/lessonService.js", () => mocks);
+vi.mock("../../src/modules/lessons/lessonService.js", () => mocks);
 
-import app from "../src/app.js";
+import app from "../../src/app.js";
 
 const courseId = "11111111-1111-4111-8111-111111111111";
 const lessonId = "22222222-2222-4222-8222-222222222222";
@@ -324,3 +324,4 @@ describe("Lesson API integration", () => {
     });
   });
 });
+

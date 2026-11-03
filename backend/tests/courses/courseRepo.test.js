@@ -5,7 +5,7 @@ const { queryMock } = vi.hoisted(() => ({
   queryMock: vi.fn(),
 }));
 
-vi.mock("../src/database/pool.js", () => ({
+vi.mock("../../src/database/pool.js", () => ({
   pool: {
     query: queryMock,
   },
@@ -20,7 +20,7 @@ import {
   archiveCourse,
   softDeleteCourse,
   restoreCourse,
-} from "../src/modules/courses/courseRepository.js";
+} from "../../src/modules/courses/courseRepository.js";
 
 const adminId = "test-admin-123";
 
@@ -567,3 +567,4 @@ describe("restoreCourse", () => {
     );
   });
 });
+

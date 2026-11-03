@@ -1,6 +1,6 @@
 
 import { describe, it, expect } from "vitest";
-import { signupSchema } from "../src/modules/auth/authValidation.js";
+import { signupSchema } from "../../src/modules/auth/authValidation.js";
 
 describe("signupSchema", () => {
   it("accepts valid signup data", () => {
@@ -34,3 +34,4 @@ describe("signupSchema", () => {
     expect(result.success).toBe(false);
   });
 });
+

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-import * as exerciseRepository from "../src/modules/exercises/exerciseRepository.js";
+import * as exerciseRepository from "../../src/modules/exercises/exerciseRepository.js";
 
 import {
   createExerciseService,
@@ -16,9 +16,9 @@ import {
   getExerciseLanguageByIdService,
   updateExerciseLanguageService,
   deleteExerciseLanguageService,
-} from "../src/modules/exercises/exerciseService.js";
+} from "../../src/modules/exercises/exerciseService.js";
 
-vi.mock("../src/modules/exercises/exerciseRepository.js", () => ({
+vi.mock("../../src/modules/exercises/exerciseRepository.js", () => ({
   findLessonById: vi.fn(),
   findExerciseById: vi.fn(),
   createExercise: vi.fn(),
@@ -1074,3 +1074,4 @@ describe("deleteExerciseLanguageService", () => {
     );
   });
 });
+

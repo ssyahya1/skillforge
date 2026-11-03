@@ -1,6 +1,6 @@
 
 import { describe, expect, it } from "vitest";
-import { createCourseSchema } from "../src/modules/courses/courseValidation.js";
+import { createCourseSchema } from "../../src/modules/courses/courseValidation.js";
 
 const validCourse = {
   title: "JavaScript Fundamentals",
@@ -93,3 +93,4 @@ describe("createCourseSchema", () => {
     }
   });
 });
+

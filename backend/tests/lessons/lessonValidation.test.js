@@ -7,7 +7,7 @@ import {
   lessonParamsSchema,
   courseLessonsParamsSchema,
   lessonQuerySchema,
-} from "../src/modules/lessons/lessonValidation.js";
+} from "../../src/modules/lessons/lessonValidation.js";
 
 const courseId = "550e8400-e29b-41d4-a716-446655440000";
 const lessonId = "650e8400-e29b-41d4-a716-446655440000";
@@ -446,3 +446,4 @@ describe("lessonQuerySchema", () => {
     expect(result.success).toBe(false);
   });
 });
+

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-import * as exerciseService from "../src/modules/exercises/exerciseService.js";
+import * as exerciseService from "../../src/modules/exercises/exerciseService.js";
 
 import {
   createExerciseController,
@@ -16,9 +16,9 @@ import {
   getExerciseLanguageByIdController,
   updateExerciseLanguageController,
   deleteExerciseLanguageController,
-} from "../src/modules/exercises/exerciseController.js";
+} from "../../src/modules/exercises/exerciseController.js";
 
-vi.mock("../src/modules/exercises/exerciseService.js", () => ({
+vi.mock("../../src/modules/exercises/exerciseService.js", () => ({
   createExerciseService: vi.fn(),
   getExerciseByIdService: vi.fn(),
   getExercisesByLessonService: vi.fn(),
@@ -520,3 +520,4 @@ describe("Exercise Controller", () => {
     });
   });
 });
+

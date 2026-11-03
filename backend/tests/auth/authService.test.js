@@ -19,7 +19,7 @@ const mocks = vi.hoisted(() => {
     resetPasswordForEmail: vi.fn(),
   };
 });
-vi.mock("../src/config/supabase.js", () => ({
+vi.mock("../../src/config/supabase.js", () => ({
   supabase: {
     auth: {
       signUp: mocks.signUp,
@@ -36,7 +36,7 @@ import {
   updatePassword,
   logoutUser,
   refreshSession,
-} from "../src/modules/auth/authService.js";
+} from "../../src/modules/auth/authService.js";
 
 const testUser = {
   id: "test-user-123",
@@ -404,3 +404,4 @@ describe("refreshSession", () => {
     });
   });
 });
+

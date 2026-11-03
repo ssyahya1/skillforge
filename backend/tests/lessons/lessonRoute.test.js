@@ -14,17 +14,17 @@ const mocks = vi.hoisted(() => ({
   restoreLessonController: vi.fn(),
 }));
 
-vi.mock("../src/middleware/requireAuth.js", () => ({
+vi.mock("../../src/middleware/requireAuth.js", () => ({
   requireAuth: (_req, _res, next) => next(),
 }));
 
-vi.mock("../src/middleware/requireAdmin.js", () => ({
+vi.mock("../../src/middleware/requireAdmin.js", () => ({
   requireAdmin: (_req, _res, next) => next(),
 }));
 
-vi.mock("../src/modules/lessons/lessonController.js", () => mocks);
+vi.mock("../../src/modules/lessons/lessonController.js", () => mocks);
 
-import lessonRoutes from "../src/modules/lessons/lessonRoutes.js";
+import lessonRoutes from "../../src/modules/lessons/lessonRoutes.js";
 
 const courseId = "11111111-1111-4111-8111-111111111111";
 const lessonId = "22222222-2222-4222-8222-222222222222";
@@ -273,3 +273,4 @@ describe("Lesson routes", () => {
     expect(response.status).toBe(404);
   });
 });
+

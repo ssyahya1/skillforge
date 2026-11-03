@@ -24,7 +24,7 @@ const {
   restoreCourseMock: vi.fn(),
 }));
 
-vi.mock("../src/modules/courses/courseRepository.js", () => ({
+vi.mock("../../src/modules/courses/courseRepository.js", () => ({
   createCourse: createCourseMock,
   getCourses: getCoursesMock,
   getCourseById: getCourseByIdMock,
@@ -45,7 +45,7 @@ import {
   archiveCourseService,
   softDeleteCourseService,
   restoreCourseService,
-} from "../src/modules/courses/courseService.js";
+} from "../../src/modules/courses/courseService.js";
 
 
 const adminId = "test-admin-123";
@@ -380,3 +380,4 @@ describe("restoreCourseService", () => {
     );
   });
 });
+

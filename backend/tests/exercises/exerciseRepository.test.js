@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../src/database/pool.js", () => ({
+vi.mock("../../src/database/pool.js", () => ({
   pool: {
     query: vi.fn(),
     connect: vi.fn(),
   },
 }));
 
-import { pool } from "../src/database/pool.js";
+import { pool } from "../../src/database/pool.js";
 import {
   findLessonById,
   findExerciseById,
@@ -36,7 +36,7 @@ import {
   getStudentExerciseLanguages,
   getVisibleTestCases,
   reorderExercises,
-} from "../src/modules/exercises/exerciseRepository.js";
+} from "../../src/modules/exercises/exerciseRepository.js";
 
 describe("Exercise Repository", () => {
   beforeEach(() => {
@@ -768,3 +768,4 @@ describe("Exercise Repository", () => {
     });
   });
 });
+

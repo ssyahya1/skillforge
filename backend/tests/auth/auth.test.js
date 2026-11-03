@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
   getUser: vi.fn(),
 }));
 
-vi.mock("../src/modules/auth/authService.js", () => ({
+vi.mock("../../src/modules/auth/authService.js", () => ({
   signupUser: mocks.signupUser,
   loginUser: mocks.loginUser,
   requestPasswordReset: mocks.requestPasswordReset,
@@ -21,7 +21,7 @@ vi.mock("../src/modules/auth/authService.js", () => ({
   refreshSession: mocks.refreshSession,
 }));
 
-vi.mock("../src/config/supabase.js", () => ({
+vi.mock("../../src/config/supabase.js", () => ({
   supabase: {
     auth: {
       getUser: mocks.getUser,
@@ -29,7 +29,7 @@ vi.mock("../src/config/supabase.js", () => ({
   },
 }));
 
-import app from "../src/app.js";
+import app from "../../src/app.js";
 
 // Reusable test data
 const validSignup = {
@@ -508,3 +508,4 @@ describe("POST /api/auth/refresh", () => {
     expect(getCookies(response)).toHaveLength(0);
   });
 });
+

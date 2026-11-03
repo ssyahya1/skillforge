@@ -1,7 +1,7 @@
 
 import { describe, it, expect, vi } from "vitest";
-import { validateParams } from "../src/middleware/validateParams.js";
-import { courseParamsSchema } from "../src/modules/courses/courseValidation.js";
+import { validateParams } from "../../src/middleware/validateParams.js";
+import { courseParamsSchema } from "../../src/modules/courses/courseValidation.js";
 
 describe("validateParams middleware", () => {
   const validParams = {
@@ -78,3 +78,4 @@ expect(res.json).toHaveBeenCalledWith(
     expect(next).not.toHaveBeenCalled();
   });
 });
+
