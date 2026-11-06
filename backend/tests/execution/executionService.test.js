@@ -1,0 +1,183 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const { findSubmissionById, getSubmissionTestResults, addExecutionJob } =
+  vi.hoisted(() => ({
+    findSubmissionById: vi.fn(),
+    getSubmissionTestResults: vi.fn(),
+    addExecutionJob: vi.fn(),
+  }));
+
+vi.mock("../../src/modules/execution/executionRepository.js", () => ({
+  findSubmissionById,
+  getSubmissionTestResults,
+}));
+
+vi.mock("../../src/modules/execution/executionQueue.js", () => ({
+  addExecutionJob,
+}));
+
+import {
+  queueSubmission,
+  getSubmissionResults,
+} from "../../src/modules/execution/executionService.js";
+
+describe("executionService", () => {
+  const submissionId = "submission-123";
+  const userId = "user-123";
+
+  const submission = {
+    id: submissionId,
+    user_id: userId,
+    status: "queued",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  describe("queueSubmission", () => {
+    it("should successfully queue a submission", async () => {
+      findSubmissionById.mockResolvedValue(submission);
+
+      addExecutionJob.mockResolvedValue({
+        id: `submission-${submissionId}`,
+      });
+
+      const result = await queueSubmission(submissionId, userId);
+
+      expect(findSubmissionById).toHaveBeenCalledWith(submissionId);
+
+      expect(addExecutionJob).toHaveBeenCalledWith({
+        submissionId,
+      });
+
+      expect(result).toEqual({
+        submissionId,
+        jobId: `submission-${submissionId}`,
+        status: "queued",
+        message: "Submission added to the execution queue.",
+      });
+    });
+
+    it("should reject when submission does not exist", async () => {
+      findSubmissionById.mockResolvedValue(null);
+
+      await expect(queueSubmission(submissionId, userId)).rejects.toMatchObject(
+        {
+          message: "Submission not found.",
+          status: 404,
+        },
+      );
+
+      expect(addExecutionJob).not.toHaveBeenCalled();
+    });
+
+    it("should reject unauthorized users", async () => {
+      findSubmissionById.mockResolvedValue({
+        ...submission,
+        user_id: "another-user",
+      });
+
+      await expect(queueSubmission(submissionId, userId)).rejects.toMatchObject(
+        {
+          status: 403,
+        },
+      );
+
+      expect(addExecutionJob).not.toHaveBeenCalled();
+    });
+
+    it("should reject submissions that are not queued", async () => {
+      findSubmissionById.mockResolvedValue({
+        ...submission,
+        status: "processing",
+      });
+
+      await expect(queueSubmission(submissionId, userId)).rejects.toMatchObject(
+        {
+          status: 409,
+        },
+      );
+
+      expect(addExecutionJob).not.toHaveBeenCalled();
+    });
+
+    it("should handle queue failures", async () => {
+      findSubmissionById.mockResolvedValue(submission);
+
+      addExecutionJob.mockRejectedValue(new Error("Redis unavailable"));
+
+      await expect(queueSubmission(submissionId, userId)).rejects.toMatchObject(
+        {
+          message: "Failed to queue submission for execution.",
+          status: 503,
+        },
+      );
+    });
+  });
+
+  describe("getSubmissionResults", () => {
+    it("should return submission and test results", async () => {
+      const testResults = [
+        {
+          id: "result-1",
+          submission_id: submissionId,
+          status: "passed",
+        },
+      ];
+
+      findSubmissionById.mockResolvedValue(submission);
+      getSubmissionTestResults.mockResolvedValue(testResults);
+
+      const result = await getSubmissionResults(submissionId, userId);
+
+      expect(findSubmissionById).toHaveBeenCalledWith(submissionId);
+
+      expect(getSubmissionTestResults).toHaveBeenCalledWith(submissionId);
+
+      expect(result).toEqual({
+        submission,
+        testResults,
+      });
+    });
+
+    it("should reject when submission does not exist", async () => {
+      findSubmissionById.mockResolvedValue(null);
+
+      await expect(
+        getSubmissionResults(submissionId, userId),
+      ).rejects.toMatchObject({
+        status: 404,
+      });
+
+      expect(getSubmissionTestResults).not.toHaveBeenCalled();
+    });
+
+    it("should reject unauthorized users", async () => {
+      findSubmissionById.mockResolvedValue({
+        ...submission,
+        user_id: "another-user",
+      });
+
+      await expect(
+        getSubmissionResults(submissionId, userId),
+      ).rejects.toMatchObject({
+        status: 403,
+      });
+
+      expect(getSubmissionTestResults).not.toHaveBeenCalled();
+    });
+
+    it("should propagate repository errors", async () => {
+      findSubmissionById.mockResolvedValue(submission);
+
+      getSubmissionTestResults.mockRejectedValue(
+        new Error("Database unavailable"),
+      );
+
+      await expect(getSubmissionResults(submissionId, userId)).rejects.toThrow(
+        "Database unavailable",
+      );
+    });
+  });
+});

@@ -1,3 +1,4 @@
+import "dotenv/config";
 import express from "express";
 import helmet from "helmet";
 import cors from "cors";
@@ -8,6 +9,7 @@ import courseRoutes from "./modules/courses/courseRoutes.js";
 import lessonRoutes from "./modules/lessons/lessonRoutes.js";
 import exerciseRoutes from "./modules/exercises/exerciseRoutes.js";
 import submissionRoutes from "./modules/submissions/submissionRoutes.js";
+import executionRoutes from "./modules/execution/executionRoutes.js";
 const app = express();
 
 app.use(helmet());
@@ -43,6 +45,7 @@ app.use("/api/admin/courses", courseRoutes);
 app.use("/api/admin/courses", lessonRoutes);
 app.use("/api/admin/lessons", exerciseRoutes);
 app.use("/api/submissions", submissionRoutes);
+app.use("/api/execution", executionRoutes);
 app.use((req, res) => {
   res.status(404).json({
     error: "NOT_FOUND",
