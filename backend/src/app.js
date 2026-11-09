@@ -1,7 +1,7 @@
 import "dotenv/config";
 import express from "express";
 import helmet from "helmet";
-import cors from "cors";
+import { createCorsMiddleware } from "./middleware/corsMiddleware.js";
 import cookieParser from "cookie-parser";
 import { globalRateLimiter } from "./middleware/rateLimiter.js";
 import authRoutes from "./modules/auth/authRoutes.js";
@@ -17,12 +17,15 @@ import progressRoutes from "./modules/progress/progressRoutes.js";
 const app = express();
 
 app.use(helmet());
-app.use(
-  cors({
-    origin: "http://localhost:3000",
-    credentials: true,
-  }),
-);
+const allowedOrigins = (
+  process.env.CORS_ORIGINS ||
+  (process.env.NODE_ENV === "production" ? "" : "http://localhost:3000")
+)
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+app.use(createCorsMiddleware(allowedOrigins));
 app.use(express.json({ limit: "110kb" }));
 app.use(cookieParser());
 app.get("/api/health", (req, res) => {
