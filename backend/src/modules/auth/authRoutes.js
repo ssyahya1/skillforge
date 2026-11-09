@@ -11,13 +11,14 @@ import {
 } from "./authController.js";
 
 import { requireAuth } from "../../middleware/requireAuth.js";
+import { authRateLimiter } from "../../middleware/rateLimiter.js";
 
 const router = Router();
 
-router.post("/refresh", refreshSessionController);
-router.post("/signup", signup);
-router.post("/login", login);
-router.post("/reset-password", resetPassword);
+router.post("/refresh",authRateLimiter, refreshSessionController);
+router.post("/signup", authRateLimiter, signup);
+router.post("/login", authRateLimiter, login);
+router.post("/reset-password", authRateLimiter, resetPassword);
 
 
 router.get("/me", requireAuth, (req, res) => {
