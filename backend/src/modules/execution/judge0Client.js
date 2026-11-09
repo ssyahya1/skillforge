@@ -1,5 +1,4 @@
 const DEFAULT_API_URL = "http://127.0.0.1:2358";
-const DEFAULT_AUTH_TOKEN = "0a38ef413c0649948790be35fd82b57e";
 const DEFAULT_AUTH_HEADER = "X-Judge0-Token";
 
 export const LANGUAGE_MAP = {
@@ -9,9 +8,15 @@ export const LANGUAGE_MAP = {
 };
 
 export function getJudge0Config() {
+  const authToken = process.env.JUDGE0_AUTH_TOKEN?.trim();
+
+  if (!authToken) {
+    throw new Error("JUDGE0_AUTH_TOKEN is required");
+  }
+
   return {
     apiUrl: process.env.JUDGE0_API_URL || DEFAULT_API_URL,
-    authToken: process.env.JUDGE0_AUTH_TOKEN ?? DEFAULT_AUTH_TOKEN,
+    authToken,
     authHeader: process.env.JUDGE0_AUTH_HEADER || DEFAULT_AUTH_HEADER,
   };
 }

@@ -12,6 +12,23 @@ import {
 describe("judge0Client", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    process.env.JUDGE0_AUTH_TOKEN = "test-token";
+  });
+
+  describe("getJudge0Config", () => {
+    it("should reject missing authentication tokens", () => {
+      const originalToken = process.env.JUDGE0_AUTH_TOKEN;
+
+      try {
+        delete process.env.JUDGE0_AUTH_TOKEN;
+
+        expect(() => getJudge0Config()).toThrow(
+          "JUDGE0_AUTH_TOKEN is required",
+        );
+      } finally {
+        process.env.JUDGE0_AUTH_TOKEN = originalToken;
+      }
+    });
   });
 
   describe("resolveLanguageId", () => {
