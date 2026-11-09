@@ -12,6 +12,7 @@ import submissionRoutes from "./modules/submissions/submissionRoutes.js";
 import executionRoutes from "./modules/execution/executionRoutes.js";
 import studentLearningRoutes from "./modules/student-learning/studentLearningRoutes.js";
 import enrollmentRoutes from "./modules/student-learning/enrollmentRoutes.js";
+import progressRoutes from "./modules/progress/progressRoutes.js";
 const app = express();
 
 app.use(helmet());
@@ -50,6 +51,7 @@ app.use("/api/submissions", submissionRoutes);
 app.use("/api/execution", executionRoutes);
 app.use("/api/student", studentLearningRoutes);
 app.use("/api/student", enrollmentRoutes);
+app.use("/api/student", progressRoutes);
 app.use((req, res) => {
   res.status(404).json({
     error: "NOT_FOUND",

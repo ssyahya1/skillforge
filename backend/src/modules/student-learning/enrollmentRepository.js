@@ -63,7 +63,11 @@ export const getEnrollmentWithCourseDetails = async (enrollmentId, userId) => {
 
   return await pool.query(query, [enrollmentId, userId]);
 };
-export const updateEnrollmentStatus = async (enrollmentId, status) => {
+export const updateEnrollmentStatus = async (
+  enrollmentId,
+  status,
+  expectedStatus = null,
+) => {
   const query = `
         UPDATE course_enrollments
         SET
@@ -73,8 +77,9 @@ export const updateEnrollmentStatus = async (enrollmentId, status) => {
                 ELSE NULL
             END
         WHERE id = $1
+        AND ($3::text IS NULL OR status = $3)
         RETURNING *;
     `;
 
-  return await pool.query(query, [enrollmentId, status]);
+  return await pool.query(query, [enrollmentId, status, expectedStatus]);
 };

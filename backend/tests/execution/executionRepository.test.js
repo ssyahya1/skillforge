@@ -13,7 +13,7 @@ vi.mock("../../src/database/pool.js", () => ({
   },
 }));
 
-import * as executionRepository from "../../../src/modules/execution/executionRepository.js";
+import * as executionRepository from "../../src/modules/execution/executionRepository.js";
 
 describe("Execution Repository", () => {
   beforeEach(() => {
@@ -81,7 +81,7 @@ describe("Execution Repository", () => {
   });
 
   describe("claimSubmission", () => {
-    it("should atomically claim a queued submission", async () => {
+    it("should claim queued submissions and reclaim processing submissions after a worker crash", async () => {
       const claimed = {
         id: "submission-1",
         status: "processing",
@@ -94,7 +94,60 @@ describe("Execution Repository", () => {
       const result = await executionRepository.claimSubmission("submission-1");
 
       expect(result).toEqual(claimed);
-      expect(query.mock.calls[0][0]).toContain("status = 'queued'");
+      expect(query.mock.calls[0][0]).toContain(
+        "status IN ('queued', 'processing')",
+      );
+    });
+
+    describe("acquireSubmissionExecutionLock", () => {
+      it("holds a PostgreSQL advisory lock for one worker execution", async () => {
+        clientQuery
+          .mockResolvedValueOnce({ rows: [{ acquired: true }] })
+          .mockResolvedValueOnce({ rows: [{ pg_advisory_unlock: true }] });
+
+        const releaseLock =
+          await executionRepository.acquireSubmissionExecutionLock("submission-1");
+
+        expect(releaseLock).toBeTypeOf("function");
+        expect(clientQuery.mock.calls[0][0]).toContain("pg_try_advisory_lock");
+        await releaseLock();
+        expect(clientQuery.mock.calls[1][0]).toContain("pg_advisory_unlock");
+        expect(release).toHaveBeenCalledOnce();
+      });
+
+      it("releases the connection when another worker owns the lock", async () => {
+        clientQuery.mockResolvedValueOnce({ rows: [{ acquired: false }] });
+
+        const releaseLock =
+          await executionRepository.acquireSubmissionExecutionLock("submission-1");
+
+        expect(releaseLock).toBeNull();
+        expect(release).toHaveBeenCalledOnce();
+      });
+    });
+
+    describe("markSubmissionExecutionFailure", () => {
+      it.each([
+        ["queued", false],
+        ["internal_error", true],
+      ])("sets retry status to %s for terminal=%s", async (status, terminal) => {
+        query.mockResolvedValue({ rows: [{ status }] });
+
+        const result =
+          await executionRepository.markSubmissionExecutionFailure(
+            "submission-1",
+            "worker failed",
+            terminal,
+          );
+
+        expect(result.status).toBe(status);
+        expect(query.mock.calls[0][0]).toContain("status = 'processing'");
+        expect(query.mock.calls[0][1]).toEqual([
+          "submission-1",
+          status,
+          "worker failed",
+        ]);
+      });
     });
 
     it("should return null if another worker already claimed it", async () => {
@@ -267,6 +320,343 @@ describe("Execution Repository", () => {
       expect(query.mock.calls[0][0]).toContain(
         "test_case.visibility = 'public'",
       );
+    });
+  });
+
+  describe("finalizeSubmissionWithProgress", () => {
+    const finalization = {
+      submissionId: "submission-1",
+      userId: "user-1",
+      exerciseId: "exercise-1",
+      overallStatus: "accepted",
+      executionTimeMs: 120,
+      memoryUsedKb: 2048,
+      errorMessage: null,
+      testResults: [
+        {
+          testCaseId: "test-1",
+          displayOrder: 0,
+          status: "passed",
+          executionTimeMs: 120,
+          actualOutput: null,
+          errorMessage: null,
+        },
+      ],
+    };
+
+    it("rejects accepted status unless at least one test case passed", async () => {
+      await expect(
+        executionRepository.finalizeSubmissionWithProgress({
+          ...finalization,
+          testResults: [],
+        }),
+      ).rejects.toThrow("Accepted submissions require all test cases to pass.");
+
+      expect(connect).not.toHaveBeenCalled();
+    });
+
+    it("persists accepted status and idempotent progress in one transaction", async () => {
+      const submission = {
+        id: "submission-1",
+        user_id: "user-1",
+        exercise_id: "exercise-1",
+        status: "accepted",
+      };
+      clientQuery
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({
+          rows: [{ ...submission, status: "processing" }],
+        })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [submission] })
+        .mockResolvedValueOnce({
+          rows: [{ enrollment_id: "enrollment-1", lesson_id: "lesson-1" }],
+        })
+        .mockResolvedValueOnce({ rows: [{ submission_id: "submission-1" }] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ id: "lesson-progress-1" }] })
+        .mockResolvedValueOnce({ rows: [{ id: "enrollment-1" }] })
+        .mockResolvedValueOnce({ rows: [] });
+
+      const result =
+        await executionRepository.finalizeSubmissionWithProgress(finalization);
+
+      expect(result).toEqual(submission);
+      expect(clientQuery.mock.calls[0][0]).toBe("BEGIN");
+      expect(clientQuery.mock.calls[1][0]).toContain("FOR UPDATE");
+      expect(clientQuery.mock.calls[4][0]).toContain(
+        "status = 'processing'",
+      );
+      expect(clientQuery.mock.calls[6][0]).toContain(
+        "ON CONFLICT (submission_id) DO NOTHING",
+      );
+      expect(clientQuery.mock.calls[7][0]).toContain(
+        "INSERT INTO public.exercise_progress",
+      );
+      expect(clientQuery.mock.calls[10][0]).toBe("COMMIT");
+      expect(release).toHaveBeenCalledOnce();
+    });
+
+    it.each(["internal_error", "cancelled"])(
+      "does not record %s as a student attempt",
+      async (status) => {
+        const submission = {
+          id: "submission-1",
+          user_id: "user-1",
+          exercise_id: "exercise-1",
+          status,
+        };
+        clientQuery
+          .mockResolvedValueOnce({ rows: [] })
+          .mockResolvedValueOnce({
+            rows: [{ ...submission, status: "processing" }],
+          })
+          .mockResolvedValueOnce({ rows: [] })
+          .mockResolvedValueOnce({ rows: [submission] })
+          .mockResolvedValueOnce({ rows: [] });
+
+        await executionRepository.finalizeSubmissionWithProgress({
+          ...finalization,
+          overallStatus: status,
+          testResults: [],
+        });
+
+        expect(
+          clientQuery.mock.calls.some(([sql]) =>
+            sql.includes("exercise_progress_attempts"),
+          ),
+        ).toBe(false);
+        expect(clientQuery.mock.calls.at(-1)[0]).toBe("COMMIT");
+      },
+    );
+
+    it("counts a failed submission as an attempt without completing the lesson", async () => {
+      clientQuery
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: "submission-1",
+              user_id: "user-1",
+              exercise_id: "exercise-1",
+              status: "processing",
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: "submission-1",
+              user_id: "user-1",
+              exercise_id: "exercise-1",
+              status: "wrong_answer",
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          rows: [{ enrollment_id: "enrollment-1", lesson_id: "lesson-1" }],
+        })
+        .mockResolvedValueOnce({ rows: [{ submission_id: "submission-1" }] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] });
+
+      await executionRepository.finalizeSubmissionWithProgress({
+        ...finalization,
+        overallStatus: "wrong_answer",
+        testResults: [
+          {
+            testCaseId: "test-1",
+            displayOrder: 0,
+            status: "failed",
+            executionTimeMs: 120,
+            actualOutput: null,
+            errorMessage: "Wrong answer",
+          },
+        ],
+      });
+
+      expect(clientQuery.mock.calls[6][1]).toEqual([
+        "submission-1",
+        "enrollment-1",
+        "exercise-1",
+        "wrong_answer",
+      ]);
+      expect(
+        clientQuery.mock.calls.some(([sql]) =>
+          sql.includes("UPDATE public.lesson_progress"),
+        ),
+      ).toBe(false);
+    });
+
+    it("does not mutate progress when no active enrollment exists", async () => {
+      clientQuery
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: "submission-1",
+              user_id: "user-1",
+              exercise_id: "exercise-1",
+              status: "processing",
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: "submission-1",
+              user_id: "user-1",
+              exercise_id: "exercise-1",
+              status: "accepted",
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] });
+
+      await executionRepository.finalizeSubmissionWithProgress(finalization);
+
+      expect(
+        clientQuery.mock.calls.some(([sql]) =>
+          sql.includes("exercise_progress_attempts"),
+        ),
+      ).toBe(false);
+      expect(
+        clientQuery.mock.calls.some(([sql]) =>
+          sql.includes("INSERT INTO public.exercise_progress ("),
+        ),
+      ).toBe(false);
+    });
+
+    it("does not increment attempts when the submission already has an idempotency record", async () => {
+      clientQuery
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: "submission-1",
+              user_id: "user-1",
+              exercise_id: "exercise-1",
+              status: "processing",
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: "submission-1",
+              user_id: "user-1",
+              exercise_id: "exercise-1",
+              status: "accepted",
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          rows: [{ enrollment_id: "enrollment-1", lesson_id: "lesson-1" }],
+        })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] });
+
+      await executionRepository.finalizeSubmissionWithProgress(finalization);
+
+      expect(
+        clientQuery.mock.calls.some(([sql]) =>
+          sql.includes("INSERT INTO public.exercise_progress ("),
+        ),
+      ).toBe(false);
+      expect(
+        clientQuery.mock.calls.some(([sql]) =>
+          sql.includes("UPDATE public.lesson_progress"),
+        ),
+      ).toBe(false);
+    });
+
+    it("rejects mismatched submission ownership and rolls back", async () => {
+      clientQuery
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: "submission-1",
+              user_id: "another-user",
+              exercise_id: "exercise-1",
+              status: "processing",
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: [] });
+
+      await expect(
+        executionRepository.finalizeSubmissionWithProgress(finalization),
+      ).rejects.toThrow("Submission identity does not match the execution job.");
+
+      expect(clientQuery.mock.calls.at(-1)[0]).toBe("ROLLBACK");
+    });
+
+    it("does not rewrite an already-finalized submission on duplicate finalization", async () => {
+      const submission = {
+        id: "submission-1",
+        user_id: "user-1",
+        exercise_id: "exercise-1",
+        status: "accepted",
+      };
+      clientQuery
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [submission] })
+        .mockResolvedValueOnce({ rows: [] });
+
+      const result =
+        await executionRepository.finalizeSubmissionWithProgress(finalization);
+
+      expect(result).toEqual(submission);
+      expect(clientQuery).toHaveBeenCalledTimes(3);
+      expect(clientQuery.mock.calls[2][0]).toBe("COMMIT");
+    });
+
+    it("rolls back progress when a transactional write fails", async () => {
+      clientQuery
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: "submission-1",
+              user_id: "user-1",
+              exercise_id: "exercise-1",
+              status: "processing",
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: "submission-1",
+              user_id: "user-1",
+              exercise_id: "exercise-1",
+              status: "accepted",
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          rows: [{ enrollment_id: "enrollment-1", lesson_id: "lesson-1" }],
+        })
+        .mockRejectedValueOnce(new Error("attempt insert failed"))
+        .mockResolvedValueOnce({ rows: [] });
+
+      await expect(
+        executionRepository.finalizeSubmissionWithProgress(finalization),
+      ).rejects.toThrow("attempt insert failed");
+
+      expect(clientQuery.mock.calls.at(-1)[0]).toBe("ROLLBACK");
+      expect(release).toHaveBeenCalledOnce();
     });
   });
 });

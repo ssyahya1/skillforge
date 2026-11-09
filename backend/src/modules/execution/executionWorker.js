@@ -3,10 +3,23 @@ import { redisConnection } from "./executionQueue.js";
 import * as executionRepository from "./executionRepository.js";
 import * as judge0Client from "./judge0Client.js";
 
-export function determineOverallStatus(testResults, compilationError = null) {
+export function determineOverallStatus(
+  testResults,
+  compilationError = null,
+  internalError = null,
+) {
+  if (internalError) {
+    return "internal_error";
+  }
+
   if (compilationError) {
     return "compilation_error";
   }
+
+  const hasInternalError = testResults.some(
+    (t) => t.isInternalError || t.status === "internal_error",
+  );
+  if (hasInternalError) return "internal_error";
 
   const hasTle = testResults.some((t) => t.status === "time_limit_exceeded");
   if (hasTle) return "time_limit_exceeded";
@@ -24,25 +37,42 @@ export function determineOverallStatus(testResults, compilationError = null) {
     testResults.length > 0 && testResults.every((t) => t.status === "passed");
   if (allPassed) return "accepted";
 
-  return "accepted";
+  return "internal_error";
 }
 
 export async function processExecutionJob(job) {
   const { submissionId } = job.data;
 
-  const claimed = await executionRepository.claimSubmission(submissionId);
-  if (!claimed) {
+  const releaseExecutionLock =
+    await executionRepository.acquireSubmissionExecutionLock(submissionId);
+  if (!releaseExecutionLock) {
     return {
       skipped: true,
-      reason: "Submission already processed or not queued.",
+      reason: "Submission is already being executed.",
     };
   }
 
+  let claimed = null;
   try {
+    claimed = await executionRepository.claimSubmission(submissionId);
+    if (!claimed) {
+      return {
+        skipped: true,
+        reason: "Submission already processed or not queued.",
+      };
+    }
+
     const submission =
       await executionRepository.findSubmissionById(submissionId);
     if (!submission) {
       throw new Error(`Submission ${submissionId} not found.`);
+    }
+
+    if (submission.status === "cancelled") {
+      return {
+        skipped: true,
+        reason: "Submission cancelled.",
+      };
     }
 
     const testCases = await executionRepository.getExecutionTestCases(
@@ -50,22 +80,30 @@ export async function processExecutionJob(job) {
     );
 
     if (testCases.length === 0) {
-      await executionRepository.saveSubmissionExecution(submissionId, {
-        status: "accepted",
-        executionTimeMs: 0,
-        memoryUsedKb: 0,
-        errorMessage: null,
-      });
+      const errorMessage = "No test cases configured for this exercise";
+      const finalized =
+        await executionRepository.finalizeSubmissionWithProgress({
+          submissionId,
+          userId: submission.user_id,
+          exerciseId: claimed.exercise_id,
+          overallStatus: "internal_error",
+          executionTimeMs: 0,
+          memoryUsedKb: 0,
+          errorMessage,
+          testResults: [],
+        });
 
       return {
         submissionId,
-        status: "accepted",
+        status: finalized?.status ?? "internal_error",
+        errorMessage,
         testResultsCount: 0,
       };
     }
 
     const testResults = [];
     let compilationError = null;
+    let internalError = null;
     let maxExecutionTimeMs = 0;
     let maxMemoryUsedKb = 0;
 
@@ -110,6 +148,27 @@ export async function processExecutionJob(job) {
         break;
       }
 
+      if (parsedStatus === "internal_error") {
+        internalError =
+          judgeResult?.message ||
+          judgeResult?.stderr ||
+          "Internal execution error occurred.";
+
+        testResults.push({
+          testCaseId: testCase.id,
+          displayOrder: testCase.display_order ?? 0,
+          status: "failed",
+          isInternalError: true,
+          executionTimeMs,
+          actualOutput: judgeResult?.stdout
+            ? { stdout: judgeResult.stdout }
+            : null,
+          errorMessage: internalError,
+        });
+
+        break;
+      }
+
       const errorMessage =
         parsedStatus === "passed"
           ? null
@@ -120,7 +179,7 @@ export async function processExecutionJob(job) {
       testResults.push({
         testCaseId: testCase.id,
         displayOrder: testCase.display_order ?? 0,
-        status: parsedStatus === "internal_error" ? "failed" : parsedStatus,
+        status: parsedStatus,
         executionTimeMs,
         actualOutput: judgeResult?.stdout
           ? { stdout: judgeResult.stdout }
@@ -133,33 +192,58 @@ export async function processExecutionJob(job) {
       }
     }
 
-    const overallStatus = determineOverallStatus(testResults, compilationError);
+    const overallStatus = determineOverallStatus(
+      testResults,
+      compilationError,
+      internalError,
+    );
 
-    await executionRepository.saveTestResults(submissionId, testResults);
+    const finalErrorMessage =
+      compilationError ||
+      internalError ||
+      (overallStatus !== "accepted"
+        ? testResults[testResults.length - 1]?.errorMessage
+        : null);
 
-    await executionRepository.saveSubmissionExecution(submissionId, {
-      status: overallStatus,
-      executionTimeMs: maxExecutionTimeMs,
-      memoryUsedKb: maxMemoryUsedKb,
-      errorMessage:
-        compilationError ||
-        (overallStatus !== "accepted"
-          ? testResults[testResults.length - 1]?.errorMessage
-          : null),
-    });
+    const finalized =
+      await executionRepository.finalizeSubmissionWithProgress({
+        submissionId,
+        userId: submission.user_id,
+        exerciseId: claimed.exercise_id,
+        overallStatus,
+        executionTimeMs: maxExecutionTimeMs,
+        memoryUsedKb: maxMemoryUsedKb,
+        errorMessage: finalErrorMessage,
+        testResults,
+      });
 
     return {
       submissionId,
-      status: overallStatus,
+      status: finalized?.status ?? overallStatus,
       testResultsCount: testResults.length,
     };
   } catch (error) {
-    await executionRepository.updateSubmissionStatus(
-      submissionId,
-      "internal_error",
-      error.message,
-    );
+    if (claimed) {
+      const attempts = Number(job.opts?.attempts ?? 1);
+      const attemptsMade = Number(job.attemptsMade ?? 0);
+
+      try {
+        await executionRepository.markSubmissionExecutionFailure(
+          submissionId,
+          error.message,
+          attemptsMade + 1 >= attempts,
+        );
+      } catch (failureError) {
+        throw new AggregateError(
+          [error, failureError],
+          "Execution failed and submission retry state could not be saved",
+        );
+      }
+    }
+
     throw error;
+  } finally {
+    await releaseExecutionLock();
   }
 }
 

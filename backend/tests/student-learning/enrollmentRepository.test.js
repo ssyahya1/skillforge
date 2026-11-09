@@ -319,7 +319,10 @@ describe("Enrollment Repository", () => {
       expect(result).toEqual(mockResult);
       expect(pool.query).toHaveBeenCalledWith(
         expect.stringContaining("completed_at = CASE"),
-        ["enrollment-1", "cancelled"],
+        ["enrollment-1", "cancelled", null],
+      );
+      expect(pool.query.mock.calls[0][0]).toContain(
+        "AND ($3::text IS NULL OR status = $3)",
       );
     });
 

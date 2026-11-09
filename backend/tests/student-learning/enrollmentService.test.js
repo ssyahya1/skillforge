@@ -330,8 +330,31 @@ describe("cancelEnrollmentService", () => {
     expect(enrollmentRepository.updateEnrollmentStatus).toHaveBeenCalledWith(
       enrollmentId,
       "cancelled",
+      "active",
     );
     expect(result.status).toBe("cancelled");
+  });
+
+  it("does not cancel an enrollment completed concurrently by progress finalization", async () => {
+    enrollmentRepository.getEnrollmentWithCourseDetails
+      .mockResolvedValueOnce(queryResult([courseDetails]))
+      .mockResolvedValueOnce(queryResult([completedEnrollment]));
+    enrollmentRepository.updateEnrollmentStatus.mockResolvedValue(
+      queryResult([]),
+    );
+
+    await expect(
+      cancelEnrollmentService(enrollmentId, userId),
+    ).rejects.toMatchObject({
+      message: "Completed enrollment cannot be cancelled.",
+      status: 409,
+    });
+
+    expect(enrollmentRepository.updateEnrollmentStatus).toHaveBeenCalledWith(
+      enrollmentId,
+      "cancelled",
+      "active",
+    );
   });
 
   it("should throw 404 if enrollment does not exist", async () => {

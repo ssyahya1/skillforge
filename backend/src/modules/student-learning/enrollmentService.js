@@ -115,7 +115,41 @@ export async function cancelEnrollmentService(enrollmentId, userId) {
   const updatedEnrollment = await enrollmentRepository.updateEnrollmentStatus(
     enrollmentId,
     "cancelled",
+    "active",
   );
+
+  if (updatedEnrollment.rows.length === 0) {
+    const currentEnrollment =
+      await enrollmentRepository.getEnrollmentWithCourseDetails(
+        enrollmentId,
+        userId,
+      );
+    const current = currentEnrollment.rows[0];
+
+    if (!current) {
+      const error = new Error("Enrollment not found");
+      error.status = 404;
+      throw error;
+    }
+
+    if (current.status === "completed") {
+      const error = new Error("Completed enrollment cannot be cancelled.");
+      error.status = 409;
+      throw error;
+    }
+
+    if (current.status === "cancelled") {
+      const error = new Error("Enrollment is already cancelled.");
+      error.status = 409;
+      throw error;
+    }
+
+    const error = new Error(
+      "Enrollment status changed before cancellation could be completed.",
+    );
+    error.status = 409;
+    throw error;
+  }
 
   return updatedEnrollment.rows[0];
 }
