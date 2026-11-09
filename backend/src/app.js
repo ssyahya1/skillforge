@@ -33,18 +33,20 @@ app.get("/api/health", (req, res) => {
 });
 app.use("/api", globalRateLimiter);
 
-app.get("/api/debug/cookies", (req, res) => {
-  const cookies = res.getHeader("Set-Cookie");
+if (process.env.NODE_ENV !== "production") {
+  app.get("/api/debug/cookies", (req, res) => {
+    const cookies = res.getHeader("Set-Cookie");
 
-  res.json({
-    cookieHeadersPrepared: Array.isArray(cookies)
-      ? cookies.length
-      : cookies
-        ? 1
-        : 0,
-    message: "This endpoint checks prepared response cookies only.",
+    res.json({
+      cookieHeadersPrepared: Array.isArray(cookies)
+        ? cookies.length
+        : cookies
+          ? 1
+          : 0,
+      message: "This endpoint checks prepared response cookies only.",
+    });
   });
-});
+}
 
 app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminRoutes);
