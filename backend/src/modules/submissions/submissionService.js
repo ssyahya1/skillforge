@@ -64,10 +64,19 @@ export const createSubmissionService = async (
   };
 
   try {
-    return await submissionRepository.createSubmission(
+    const submission = await submissionRepository.createSubmission(
       userId,
       trustedSubmissionData,
     );
+    if (!submission) {
+      const error = new Error(
+        "You must be actively enrolled and complete the lesson content before submitting an exercise.",
+      );
+      error.status = 403;
+      throw error;
+    }
+
+    return submission;
   } catch (error) {
     const isIdempotencyConflict =
       error.code === "23505" &&
@@ -141,7 +150,7 @@ export const getSubmissionHistoryService = async (
 };
 export const getSubmissionDetailsService = async (userId, submissionId) => {
   const submission =
-    await submissionRepository.findSubmissionDetailsById(submissionId);
+    await submissionRepository.findSubmissionDetailsById(userId, submissionId);
   if (!submission) {
     throw new Error("Submission not found.");
   }
@@ -149,7 +158,7 @@ export const getSubmissionDetailsService = async (userId, submissionId) => {
     throw new Error("You do not have permission to view this submission.");
   }
   const testResults =
-    await submissionRepository.getSubmissionTestResults(submissionId);
+    await submissionRepository.getPublicSubmissionTestResults(submissionId);
   const sanitizedTestResults = testResults.map((result) => ({
     id: result.id,
     display_order: result.display_order,

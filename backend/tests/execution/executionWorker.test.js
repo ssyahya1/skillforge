@@ -5,12 +5,18 @@ const {
   claimSubmission,
   findSubmissionById,
   getExecutionTestCases,
+  getSubmissionTestExecutionCheckpoint,
+  beginSubmissionTestExecution,
+  saveJudge0SubmissionToken,
+  completeSubmissionTestExecution,
+  markSubmissionTestExecutionAmbiguous,
   saveSubmissionExecution,
   saveTestResults,
   updateSubmissionStatus,
   markSubmissionExecutionFailure,
   finalizeSubmissionWithProgress,
   submitToJudge0,
+  pollSubmission,
   parseJudge0Status,
   Worker,
 } = vi.hoisted(() => ({
@@ -18,12 +24,18 @@ const {
   claimSubmission: vi.fn(),
   findSubmissionById: vi.fn(),
   getExecutionTestCases: vi.fn(),
+  getSubmissionTestExecutionCheckpoint: vi.fn(),
+  beginSubmissionTestExecution: vi.fn(),
+  saveJudge0SubmissionToken: vi.fn(),
+  completeSubmissionTestExecution: vi.fn(),
+  markSubmissionTestExecutionAmbiguous: vi.fn(),
   saveSubmissionExecution: vi.fn(),
   saveTestResults: vi.fn(),
   updateSubmissionStatus: vi.fn(),
   markSubmissionExecutionFailure: vi.fn(),
   finalizeSubmissionWithProgress: vi.fn().mockResolvedValue({}),
   submitToJudge0: vi.fn(),
+  pollSubmission: vi.fn(),
   parseJudge0Status: vi.fn(),
   Worker: vi.fn(function (queueName, processor, opts) {
     this.queueName = queueName;
@@ -39,6 +51,11 @@ vi.mock("../../src/modules/execution/executionRepository.js", () => ({
   claimSubmission,
   findSubmissionById,
   getExecutionTestCases,
+  getSubmissionTestExecutionCheckpoint,
+  beginSubmissionTestExecution,
+  saveJudge0SubmissionToken,
+  completeSubmissionTestExecution,
+  markSubmissionTestExecutionAmbiguous,
   saveSubmissionExecution,
   saveTestResults,
   updateSubmissionStatus,
@@ -48,6 +65,7 @@ vi.mock("../../src/modules/execution/executionRepository.js", () => ({
 
 vi.mock("../../src/modules/execution/judge0Client.js", () => ({
   submitToJudge0,
+  pollSubmission,
   parseJudge0Status,
 }));
 
@@ -70,6 +88,8 @@ describe("executionWorker", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     acquireSubmissionExecutionLock.mockResolvedValue(vi.fn());
+    getSubmissionTestExecutionCheckpoint.mockResolvedValue(null);
+    beginSubmissionTestExecution.mockResolvedValue({ state: "submitting" });
   });
 
   describe("determineOverallStatus", () => {
@@ -145,6 +165,27 @@ describe("executionWorker", () => {
       expect(findSubmissionById).not.toHaveBeenCalled();
     });
 
+    it("should skip ineligible submissions without fetching or executing them", async () => {
+      const errorMessage =
+        "Enrollment is no longer active or lesson requirements are incomplete.";
+
+      claimSubmission.mockResolvedValue({
+        id: "sub-123",
+        status: "internal_error",
+        ineligible: true,
+        error_message: errorMessage,
+      });
+
+      const result = await processExecutionJob(job);
+
+      expect(result).toEqual({
+        skipped: true,
+        reason: errorMessage,
+      });
+      expect(findSubmissionById).not.toHaveBeenCalled();
+      expect(getExecutionTestCases).not.toHaveBeenCalled();
+      expect(submitToJudge0).not.toHaveBeenCalled();
+    });
     it("should skip duplicate jobs while another worker holds the submission lock", async () => {
       acquireSubmissionExecutionLock.mockResolvedValue(null);
 
@@ -267,6 +308,189 @@ describe("executionWorker", () => {
       expect(result.status).toBe("accepted");
     });
 
+    it("resumes a saved Judge0 token after a worker restart without another POST", async () => {
+      claimSubmission.mockResolvedValue({
+        id: "sub-123",
+        exercise_id: "ex-456",
+        previous_status: "processing",
+      });
+      findSubmissionById.mockResolvedValue(mockSubmission);
+      getExecutionTestCases.mockResolvedValue([
+        { id: "tc-1", input_data: "1", expected_output: "2", display_order: 0 },
+      ]);
+      getSubmissionTestExecutionCheckpoint.mockResolvedValue({
+        state: "submitted",
+        judge0_token: "remote-token",
+      });
+      pollSubmission.mockResolvedValue({
+        token: "remote-token",
+        status: { id: 3 },
+        stdout: "2",
+      });
+      parseJudge0Status.mockReturnValue("passed");
+
+      const result = await processExecutionJob(job);
+
+      expect(submitToJudge0).not.toHaveBeenCalled();
+      expect(pollSubmission).toHaveBeenCalledWith("remote-token");
+      expect(completeSubmissionTestExecution).toHaveBeenCalledWith(
+        "sub-123",
+        "tc-1",
+        expect.objectContaining({ token: "remote-token" }),
+      );
+      expect(result.status).toBe("accepted");
+    });
+
+    it("does not repeat a POST when persisting its returned token fails", async () => {
+      claimSubmission
+        .mockResolvedValueOnce({
+          id: "sub-123",
+          exercise_id: "ex-456",
+          previous_status: "queued",
+        })
+        .mockResolvedValueOnce({
+          id: "sub-123",
+          exercise_id: "ex-456",
+          previous_status: "queued",
+        });
+      findSubmissionById.mockResolvedValue(mockSubmission);
+      getExecutionTestCases.mockResolvedValue([
+        { id: "tc-1", input_data: "1", expected_output: "2", display_order: 0 },
+      ]);
+      getSubmissionTestExecutionCheckpoint
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ state: "submitting", judge0_token: null });
+      saveJudge0SubmissionToken.mockRejectedValueOnce(
+        new Error("Database unavailable"),
+      );
+      markSubmissionExecutionFailure.mockResolvedValue({
+        id: "sub-123",
+        status: "internal_error",
+      });
+      submitToJudge0.mockImplementation(async ({ onSubmissionToken }) => {
+        await onSubmissionToken("remote-token");
+        return { token: "remote-token", status: { id: 3 } };
+      });
+
+      await expect(
+        processExecutionJob({
+          ...job,
+          opts: { attempts: 3 },
+          attemptsMade: 0,
+        }),
+      ).rejects.toThrow("Database unavailable");
+
+      const result = await processExecutionJob({
+        ...job,
+        opts: { attempts: 3 },
+        attemptsMade: 1,
+      });
+
+      expect(submitToJudge0).toHaveBeenCalledOnce();
+      expect(markSubmissionTestExecutionAmbiguous).toHaveBeenCalledWith(
+        "sub-123",
+        "tc-1",
+        0,
+        expect.stringContaining("after Judge0 may have accepted"),
+      );
+      expect(result).toMatchObject({
+        status: "internal_error",
+        ambiguous: true,
+      });
+    });
+
+    it("reuses a completed checkpoint when final submission persistence is retried", async () => {
+      claimSubmission
+        .mockResolvedValueOnce({
+          id: "sub-123",
+          exercise_id: "ex-456",
+          previous_status: "queued",
+        })
+        .mockResolvedValueOnce({
+          id: "sub-123",
+          exercise_id: "ex-456",
+          previous_status: "queued",
+        });
+      findSubmissionById.mockResolvedValue(mockSubmission);
+      getExecutionTestCases.mockResolvedValue([
+        { id: "tc-1", input_data: "1", expected_output: "2", display_order: 0 },
+      ]);
+      getSubmissionTestExecutionCheckpoint
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({
+          state: "completed",
+          result: {
+            token: "remote-token",
+            status: { id: 3 },
+            stdout: "2",
+          },
+        });
+      submitToJudge0.mockResolvedValueOnce({
+        token: "remote-token",
+        status: { id: 3 },
+        stdout: "2",
+      });
+      parseJudge0Status.mockReturnValue("passed");
+      finalizeSubmissionWithProgress
+        .mockRejectedValueOnce(new Error("Database unavailable"))
+        .mockResolvedValueOnce({ status: "accepted" });
+
+      await expect(
+        processExecutionJob({
+          ...job,
+          opts: { attempts: 3 },
+          attemptsMade: 0,
+        }),
+      ).rejects.toThrow("Database unavailable");
+
+      const result = await processExecutionJob({
+        ...job,
+        opts: { attempts: 3 },
+        attemptsMade: 1,
+      });
+
+      expect(submitToJudge0).toHaveBeenCalledOnce();
+      expect(beginSubmissionTestExecution).toHaveBeenCalledOnce();
+      expect(result.status).toBe("accepted");
+    });
+
+    it("terminalizes a processing submission with no checkpoint instead of resubmitting", async () => {
+      claimSubmission.mockResolvedValue({
+        id: "sub-123",
+        exercise_id: "ex-456",
+        previous_status: "processing",
+      });
+      findSubmissionById.mockResolvedValue(mockSubmission);
+      getExecutionTestCases.mockResolvedValue([
+        { id: "tc-1", input_data: "1", expected_output: "2", display_order: 0 },
+      ]);
+      markSubmissionExecutionFailure.mockResolvedValue({
+        id: "sub-123",
+        status: "internal_error",
+      });
+
+      const result = await processExecutionJob(job);
+
+      expect(beginSubmissionTestExecution).not.toHaveBeenCalled();
+      expect(submitToJudge0).not.toHaveBeenCalled();
+      expect(markSubmissionTestExecutionAmbiguous).toHaveBeenCalledWith(
+        "sub-123",
+        "tc-1",
+        0,
+        expect.stringContaining("without a durable Judge0 checkpoint"),
+      );
+      expect(markSubmissionExecutionFailure).toHaveBeenCalledWith(
+        "sub-123",
+        expect.stringContaining("without a durable Judge0 checkpoint"),
+        true,
+      );
+      expect(result).toMatchObject({
+        submissionId: "sub-123",
+        status: "internal_error",
+        ambiguous: true,
+      });
+    });
+
     it("should handle Judge0 internal errors by setting overall status to internal_error", async () => {
       claimSubmission.mockResolvedValue({
         id: "sub-123",
@@ -383,6 +607,110 @@ describe("executionWorker", () => {
         true,
       );
     });
+
+    it("does not retry a Judge0 POST timeout with an ambiguous outcome", async () => {
+      claimSubmission.mockResolvedValue({
+        id: "sub-123",
+        exercise_id: "ex-456",
+      });
+      findSubmissionById.mockResolvedValue(mockSubmission);
+      getExecutionTestCases.mockResolvedValue([
+        { id: "tc-1", input_data: "1", expected_output: "2", display_order: 0 },
+      ]);
+      submitToJudge0.mockRejectedValue(
+        Object.assign(new Error("Judge0 POST timed out"), {
+          code: "JUDGE0_POST_TIMEOUT",
+        }),
+      );
+      markSubmissionExecutionFailure.mockResolvedValue({
+        id: "sub-123",
+        status: "internal_error",
+      });
+
+      const result = await processExecutionJob({
+        ...job,
+        opts: { attempts: 3 },
+        attemptsMade: 0,
+      });
+
+      expect(markSubmissionExecutionFailure).toHaveBeenCalledWith(
+        "sub-123",
+        "Judge0 timed out after submission; execution outcome is unknown.",
+        true,
+      );
+      expect(finalizeSubmissionWithProgress).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        submissionId: "sub-123",
+        status: "internal_error",
+        ambiguous: true,
+      });
+    });
+
+    it("keeps a Judge0 GET timeout retryable", async () => {
+      claimSubmission.mockResolvedValue({
+        id: "sub-123",
+        exercise_id: "ex-456",
+      });
+      findSubmissionById.mockResolvedValue(mockSubmission);
+      getExecutionTestCases.mockResolvedValue([
+        { id: "tc-1", input_data: "1", expected_output: "2", display_order: 0 },
+      ]);
+      submitToJudge0.mockImplementation(async ({ onSubmissionToken }) => {
+        await onSubmissionToken("remote-token");
+        throw Object.assign(new Error("Judge0 GET timed out"), {
+          code: "JUDGE0_GET_TIMEOUT",
+        });
+      });
+
+      await expect(
+        processExecutionJob({
+          ...job,
+          opts: { attempts: 3 },
+          attemptsMade: 0,
+        }),
+      ).rejects.toMatchObject({ code: "JUDGE0_GET_TIMEOUT" });
+
+      expect(markSubmissionExecutionFailure).toHaveBeenCalledWith(
+        "sub-123",
+        "Judge0 GET timed out",
+        false,
+      );
+    });
+
+    it("does not retry an ambiguous POST when its terminal status cannot be persisted", async () => {
+      const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+      claimSubmission.mockResolvedValue({
+        id: "sub-123",
+        exercise_id: "ex-456",
+      });
+      findSubmissionById.mockResolvedValue(mockSubmission);
+      getExecutionTestCases.mockResolvedValue([
+        { id: "tc-1", input_data: "1", expected_output: "2", display_order: 0 },
+      ]);
+      submitToJudge0.mockRejectedValue(
+        Object.assign(new Error("Judge0 POST timed out"), {
+          code: "JUDGE0_POST_TIMEOUT",
+        }),
+      );
+      markSubmissionExecutionFailure.mockRejectedValue(
+        new Error("Database unavailable"),
+      );
+
+      const result = await processExecutionJob({
+        ...job,
+        opts: { attempts: 3 },
+        attemptsMade: 0,
+      });
+
+      expect(result).toEqual({
+        submissionId: "sub-123",
+        status: "unknown",
+        ambiguous: true,
+        persistenceFailed: true,
+      });
+      expect(markSubmissionExecutionFailure).toHaveBeenCalledOnce();
+      expect(errorLog).toHaveBeenCalledOnce();
+    });
   });
 
   describe("createExecutionWorker and closeExecutionWorker", () => {
@@ -396,6 +724,67 @@ describe("executionWorker", () => {
         }),
       );
       expect(worker).toBeDefined();
+    });
+
+    it("marks a submission terminal after BullMQ exhausts stalled recovery", async () => {
+      const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+      markSubmissionExecutionFailure.mockResolvedValue({
+        id: "sub-123",
+        status: "internal_error",
+      });
+      createExecutionWorker();
+      const worker = Worker.mock.results.at(-1).value;
+      const failedHandler = worker.on.mock.calls.find(
+        ([eventName]) => eventName === "failed",
+      )[1];
+
+      failedHandler(
+        { id: "submission-sub-123", data: { submissionId: "sub-123" } },
+        new Error("job stalled more than allowable limit"),
+      );
+
+      await vi.waitFor(() => {
+        expect(markSubmissionExecutionFailure).toHaveBeenCalledWith(
+          "sub-123",
+          "Execution worker stopped before the submission completed.",
+          true,
+        );
+      });
+      expect(errorLog).toHaveBeenCalledOnce();
+    });
+
+    it("does not alter submission state for ordinary job failures", () => {
+      const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+      createExecutionWorker();
+      const worker = Worker.mock.results.at(-1).value;
+      const failedHandler = worker.on.mock.calls.find(
+        ([eventName]) => eventName === "failed",
+      )[1];
+
+      failedHandler(
+        { id: "submission-sub-123", data: { submissionId: "sub-123" } },
+        new Error("Judge0 is unavailable"),
+      );
+
+      expect(markSubmissionExecutionFailure).not.toHaveBeenCalled();
+      expect(errorLog).toHaveBeenCalledOnce();
+    });
+
+    it("logs terminal stalled failures with missing submission IDs", () => {
+      const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+      createExecutionWorker();
+      const worker = Worker.mock.results.at(-1).value;
+      const failedHandler = worker.on.mock.calls.find(
+        ([eventName]) => eventName === "failed",
+      )[1];
+
+      failedHandler(undefined, new Error("job stalled more than allowable limit"));
+
+      expect(markSubmissionExecutionFailure).not.toHaveBeenCalled();
+      expect(errorLog).toHaveBeenCalledTimes(2);
+      expect(errorLog).toHaveBeenLastCalledWith(
+        "[ExecutionWorker] Stalled execution job has no submission ID.",
+      );
     });
 
     it("should close worker gracefully", async () => {

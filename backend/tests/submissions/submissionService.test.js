@@ -17,6 +17,7 @@ vi.mock("../../src/modules/submissions/submissionRepository.js", () => ({
   countUserSubmissions: vi.fn(),
   findSubmissionDetailsById: vi.fn(),
   getSubmissionTestResults: vi.fn(),
+  getPublicSubmissionTestResults: vi.fn(),
   hasUserRevealedSolution: vi.fn(),
   countUserFailedSubmissions: vi.fn(),
   createSolutionReveal: vi.fn(),
@@ -67,7 +68,7 @@ beforeEach(() => {
   submissionRepository.countUserSubmissions.mockResolvedValue(0);
 
   submissionRepository.findSubmissionDetailsById.mockResolvedValue(null);
-  submissionRepository.getSubmissionTestResults.mockResolvedValue([]);
+  submissionRepository.getPublicSubmissionTestResults.mockResolvedValue([]);
 
   submissionRepository.hasUserRevealedSolution.mockResolvedValue(false);
   submissionRepository.countUserFailedSubmissions.mockResolvedValue(0);
@@ -107,6 +108,17 @@ describe("createSubmissionService", () => {
       runtimeVersion: "22",
       executionMode: "function",
       entryPoint: "main",
+    });
+  });
+
+  it("should reject new submissions when enrollment or lesson completion is missing", async () => {
+    submissionRepository.createSubmission.mockResolvedValue(null);
+
+    await expect(
+      createSubmissionService(userId, exerciseId, submissionData),
+    ).rejects.toMatchObject({
+      status: 403,
+      message: expect.stringContaining("complete the lesson content"),
     });
   });
 
@@ -303,7 +315,7 @@ describe("getSubmissionDetailsService", () => {
       submission,
     );
 
-    submissionRepository.getSubmissionTestResults.mockResolvedValue(
+    submissionRepository.getPublicSubmissionTestResults.mockResolvedValue(
       testResults,
     );
 
@@ -344,7 +356,7 @@ describe("getSubmissionDetailsService", () => {
     ).rejects.toThrow("You do not have permission to view this submission.");
 
     expect(
-      submissionRepository.getSubmissionTestResults,
+      submissionRepository.getPublicSubmissionTestResults,
     ).not.toHaveBeenCalled();
   });
 });
@@ -434,4 +446,3 @@ describe("revealSolutionService", () => {
     expect(submissionRepository.createSolutionReveal).not.toHaveBeenCalled();
   });
 });
-

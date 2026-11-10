@@ -14,6 +14,18 @@ import {
   refreshSession,
 } from "./authService.js";
 
+function isInvalidRefreshTokenError(error) {
+  return (
+    error.status === 400 &&
+    (error.code === "refresh_token_not_found" ||
+      error.code === "refresh_token_already_used" ||
+      error.code === "invalid_grant" ||
+      /refresh token.*(invalid|expired|used|not found)|invalid.*refresh token/i.test(
+        error.message,
+      ))
+  );
+}
+
 export async function signup(req, res, next) {
   const validation = signupSchema.safeParse(req.body);
 
@@ -59,11 +71,11 @@ export async function signup(req, res, next) {
     });
 
     res.cookie("skillforge_refresh_token", session.refresh_token, {
-        httpOnly: true,
-        secure: isProduction,
-        sameSite: "lax",
-        path: "/",
-        maxAge: 30 * 24 * 60 * 60 * 1000,
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: "lax",
+      path: "/",
+      maxAge: 30 * 24 * 60 * 60 * 1000,
     });
 
     return res.status(201).json({
@@ -75,10 +87,18 @@ export async function signup(req, res, next) {
       requiresEmailConfirmation: false,
     });
   } catch (error) {
+    const status = Number(error?.status ?? error?.statusCode);
+
+    if (status >= 400 && status < 500) {
+      return res.status(status).json({
+        error: "SIGNUP_FAILED",
+        message: "Unable to create account.",
+      });
+    }
+
     return next(error);
   }
 }
-
 
 export async function login(req, res, next) {
   const validation = loginSchema.safeParse(req.body);
@@ -129,11 +149,18 @@ export async function login(req, res, next) {
       },
     });
   } catch (error) {
+    const status = Number(error?.status ?? error?.statusCode);
+
+    if (status >= 400 && status < 500) {
+      return res.status(status === 400 ? 401 : status).json({
+        error: "LOGIN_FAILED",
+        message: "Invalid email or password.",
+      });
+    }
+
     return next(error);
   }
 }
-
-
 
 export async function resetPassword(req, res, next) {
   const validation = resetPasswordSchema.safeParse(req.body);
@@ -151,17 +178,16 @@ export async function resetPassword(req, res, next) {
   try {
     await requestPasswordReset(validation.data);
 
-
     return res.status(200).json({
       message:
         "If an account exists for that email, password reset instructions will be sent.",
     });
   } catch (error) {
-    return next(error);
+    const safeError = new Error("Password reset service is unavailable.");
+    safeError.status = 500;
+    return next(safeError);
   }
 }
-
-
 
 export async function changePassword(req, res, next) {
   const validation = updatePasswordSchema.safeParse(req.body);
@@ -199,18 +225,36 @@ export async function changePassword(req, res, next) {
       },
     });
   } catch (error) {
+    const status = Number(error?.status ?? error?.statusCode);
+
+    if (status >= 400 && status < 500) {
+      return res.status(status).json({
+        error: "PASSWORD_UPDATE_FAILED",
+        message:
+          "Unable to update password. Please check your credentials and try again.",
+      });
+    }
+
     return next(error);
   }
 }
 
-
-
 export async function logout(req, res, next) {
   try {
     const accessToken = req.cookies?.skillforge_access_token;
+    const refreshToken = req.cookies?.skillforge_refresh_token;
 
     if (accessToken) {
       await logoutUser(accessToken);
+    } else if (refreshToken) {
+      try {
+        const { session } = await refreshSession(refreshToken);
+        await logoutUser(session.access_token);
+      } catch (error) {
+        if (!isInvalidRefreshTokenError(error)) {
+          throw error;
+        }
+      }
     }
 
     const cookieOptions = {
@@ -227,7 +271,19 @@ export async function logout(req, res, next) {
       message: "Logged out successfully.",
     });
   } catch (error) {
-    return next(error);
+    const cookieOptions = {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+    };
+
+    res.clearCookie("skillforge_access_token", cookieOptions);
+    res.clearCookie("skillforge_refresh_token", cookieOptions);
+
+    const safeError = new Error("Logout service is unavailable.");
+    safeError.status = 500;
+    return next(safeError);
   }
 }
 
@@ -290,18 +346,7 @@ export async function refreshSessionController(req, res, next) {
       },
     });
   } catch (error) {
-    const isInvalidRefreshToken =
-      error.status === 400 &&
-      (
-        error.code === "refresh_token_not_found" ||
-        error.code === "refresh_token_already_used" ||
-        error.code === "invalid_grant" ||
-        /refresh token.*(invalid|expired|used|not found)|invalid.*refresh token/i.test(
-          error.message,
-        )
-      );
-
-    if (isInvalidRefreshToken) {
+    if (isInvalidRefreshTokenError(error)) {
       clearAuthCookies();
 
       return res.status(401).json({

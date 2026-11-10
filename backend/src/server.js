@@ -6,24 +6,34 @@ import {
   createExecutionWorker,
   closeExecutionWorker,
 } from "./modules/execution/executionWorker.js";
+import { closeExecutionQueue } from "./modules/execution/executionQueue.js";
+import { rateLimitRedis } from "./middleware/rateLimiter.js";
+import { pool } from "./database/pool.js";
+import {
+  createGracefulShutdown,
+  registerShutdownSignals,
+} from "./serverShutdown.js";
 
 const port = Number(process.env.PORT) || 5000;
+let coursePurgeTask;
 let lessonPurgeTask;
 let executionWorker;
 
 const server = app.listen(port, () => {
   console.log(`SkillForge API running on port ${port}`);
 
-  startCoursePurgeJob();
+  coursePurgeTask = startCoursePurgeJob();
   lessonPurgeTask = startLessonPurgeJob();
 
   if (process.env.RUN_WORKER !== "false") {
     try {
       executionWorker = createExecutionWorker();
+      app.locals.executionWorkerReady = true;
       console.log(
         "[Execution Worker] Worker started listening to skillforge-execution queue",
       );
     } catch (error) {
+      app.locals.executionWorkerReady = false;
       console.error(
         "[Execution Worker] Failed to start execution worker:",
         error.message,
@@ -32,19 +42,14 @@ const server = app.listen(port, () => {
   }
 });
 
-server.on("close", () => {
-  if (lessonPurgeTask) {
-    Promise.resolve(lessonPurgeTask.destroy()).catch((error) => {
-      console.error("[Lesson Purge] Failed to stop scheduled job:", error);
-    });
-  }
-
-  if (executionWorker) {
-    closeExecutionWorker(executionWorker).catch((error) => {
-      console.error(
-        "[Execution Worker] Failed to close execution worker:",
-        error.message,
-      );
-    });
-  }
+const shutdown = createGracefulShutdown({
+  server,
+  getScheduledTasks: () => [coursePurgeTask, lessonPurgeTask],
+  getWorker: () => executionWorker,
+  closeWorker: closeExecutionWorker,
+  closeQueue: closeExecutionQueue,
+  closeRateLimitRedis: () => rateLimitRedis.disconnect(),
+  closePool: () => pool.end(),
 });
+
+registerShutdownSignals(shutdown);

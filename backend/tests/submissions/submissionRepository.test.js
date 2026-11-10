@@ -1,11 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-const { mockQuery } = vi.hoisted(() => ({
+const { mockQuery, mockConnect, mockClientQuery, mockRelease } = vi.hoisted(() => ({
   mockQuery: vi.fn(),
+  mockConnect: vi.fn(),
+  mockClientQuery: vi.fn(),
+  mockRelease: vi.fn(),
 }));
 
 vi.mock("../../src/database/pool.js", () => ({
   pool: {
     query: mockQuery,
+    connect: mockConnect,
   },
 }));
 import {
@@ -18,6 +22,7 @@ import {
   updateSubmission,
   createSubmissionTestResult,
   getSubmissionTestResults,
+  getPublicSubmissionTestResults,
   countUserFailedSubmissions,
   createSolutionReveal,
   hasUserRevealedSolution,
@@ -26,21 +31,25 @@ import {
 describe("Submission Repository", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockConnect.mockResolvedValue({
+      query: mockClientQuery,
+      release: mockRelease,
+    });
   });
 
   describe("createSubmission", () => {
-    it("should create a submission and return it", async () => {
-      const submissionData = {
-        exerciseId: "exercise-1",
-        languageId: "language-1",
-        idempotencyKey: "key-1",
-        sourceCode: "console.log('Hello')",
-        language: "javascript",
-        runtimeVersion: "22",
-        executionMode: "stdin",
-        entryPoint: null,
-      };
+    const submissionData = {
+      exerciseId: "exercise-1",
+      languageId: "language-1",
+      idempotencyKey: "key-1",
+      sourceCode: "console.log('Hello')",
+      language: "javascript",
+      runtimeVersion: "22",
+      executionMode: "stdin",
+      entryPoint: null,
+    };
 
+    it("should create a submission and return it", async () => {
       const mockSubmission = {
         id: "submission-1",
         user_id: "user-1",
@@ -48,15 +57,25 @@ describe("Submission Repository", () => {
         status: "queued",
       };
 
-      mockQuery.mockResolvedValueOnce({
-        rows: [mockSubmission],
-      });
+      mockClientQuery
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ id: "enrollment-1" }] })
+        .mockResolvedValueOnce({ rows: [mockSubmission] })
+        .mockResolvedValueOnce({ rows: [] });
 
       const result = await createSubmission("user-1", submissionData);
 
       expect(result).toEqual(mockSubmission);
-      expect(mockQuery).toHaveBeenCalledOnce();
-      expect(mockQuery.mock.calls[0][1]).toEqual([
+      expect(mockClientQuery).toHaveBeenCalledTimes(4);
+      expect(mockClientQuery.mock.calls[1][0]).toContain(
+        "lp.content_completed_at IS NOT NULL",
+      );
+      expect(mockClientQuery.mock.calls[1][0]).toContain("FOR UPDATE OF ce");
+      expect(mockClientQuery.mock.calls[1][1]).toEqual([
+        "user-1",
+        "exercise-1",
+      ]);
+      expect(mockClientQuery.mock.calls[2][1]).toEqual([
         "user-1",
         "exercise-1",
         "language-1",
@@ -67,6 +86,60 @@ describe("Submission Repository", () => {
         "stdin",
         null,
       ]);
+      expect(mockClientQuery.mock.calls[3][0]).toBe("COMMIT");
+      expect(mockRelease).toHaveBeenCalledOnce();
+    });
+
+    it("does not create a submission without an active enrollment", async () => {
+      mockClientQuery
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] });
+
+      const result = await createSubmission("user-1", submissionData);
+
+      expect(result).toBeNull();
+      expect(mockClientQuery.mock.calls[1][0]).toContain(
+        "ce.status = 'active'",
+      );
+      expect(mockClientQuery.mock.calls[1][0]).toContain(
+        "lp.content_completed_at IS NOT NULL",
+      );
+      expect(mockClientQuery.mock.calls[2][0]).toBe("ROLLBACK");
+      expect(mockClientQuery).toHaveBeenCalledTimes(3);
+      expect(mockRelease).toHaveBeenCalledOnce();
+    });
+
+    it("does not create a submission before lesson content is completed", async () => {
+      mockClientQuery
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] });
+
+      const result = await createSubmission("user-1", submissionData);
+
+      expect(result).toBeNull();
+      expect(mockClientQuery.mock.calls[1][0]).toContain(
+        "lp.content_completed_at IS NOT NULL",
+      );
+      expect(mockClientQuery.mock.calls[2][0]).toBe("ROLLBACK");
+      expect(mockClientQuery).toHaveBeenCalledTimes(3);
+    });
+
+    it("rolls back and releases the client when insertion fails", async () => {
+      const insertError = new Error("Insert failed");
+      mockClientQuery
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ id: "enrollment-1" }] })
+        .mockRejectedValueOnce(insertError)
+        .mockResolvedValueOnce({ rows: [] });
+
+      await expect(
+        createSubmission("user-1", submissionData),
+      ).rejects.toBe(insertError);
+
+      expect(mockClientQuery.mock.calls.at(-1)[0]).toBe("ROLLBACK");
+      expect(mockRelease).toHaveBeenCalledOnce();
     });
   });
 
@@ -132,16 +205,16 @@ describe("Submission Repository", () => {
         rows: [mockSubmission],
       });
 
-      const result = await findSubmissionDetailsById("submission-1");
+      const result = await findSubmissionDetailsById("user-1", "submission-1");
 
       expect(result).toEqual(mockSubmission);
-      expect(mockQuery.mock.calls[0][1]).toEqual(["submission-1"]);
+      expect(mockQuery.mock.calls[0][1]).toEqual(["user-1", "submission-1"]);
     });
 
     it("should return null when submission details do not exist", async () => {
       mockQuery.mockResolvedValueOnce({ rows: [] });
 
-      const result = await findSubmissionDetailsById("unknown-id");
+      const result = await findSubmissionDetailsById("user-1", "unknown-id");
 
       expect(result).toBeNull();
     });
@@ -255,6 +328,27 @@ describe("Submission Repository", () => {
     });
   });
 
+  describe("getPublicSubmissionTestResults", () => {
+    it("returns only results for existing public test cases", async () => {
+      const results = [{ status: "passed", test_case_id: "public-test" }];
+      mockQuery.mockResolvedValueOnce({ rows: results });
+
+      const result = await getPublicSubmissionTestResults("submission-1");
+
+      expect(result).toEqual(results);
+      expect(mockQuery.mock.calls[0][0]).toContain(
+        "JOIN public.exercise_test_cases AS test_case",
+      );
+      expect(mockQuery.mock.calls[0][0]).toContain(
+        "test_case.visibility = 'public'",
+      );
+      expect(mockQuery.mock.calls[0][0]).not.toContain(
+        "test_case.id IS NULL",
+      );
+      expect(mockQuery.mock.calls[0][1]).toEqual(["submission-1"]);
+    });
+  });
+
   describe("countUserFailedSubmissions", () => {
     it("should return the failed submission count", async () => {
       mockQuery.mockResolvedValueOnce({
@@ -329,4 +423,3 @@ describe("Submission Repository", () => {
     });
   });
 });
-

@@ -14,30 +14,25 @@ export const getEnrollmentByCourseIdAndUser = async (courseId, userId) => {
         LIMIT 1;`;
   return await pool.query(query, [courseId, userId]);
 };
-export const reactivateEnrollment = async (enrollmentId) => {
+export const reactivateEnrollment = async (enrollmentId, userId) => {
   const query = `
         UPDATE course_enrollments
         SET status = 'active'
         WHERE id = $1
+        AND user_id = $2
         AND status = 'cancelled'
         RETURNING *;`;
-  return await pool.query(query, [enrollmentId]);
+  return await pool.query(query, [enrollmentId, userId]);
 };
-export const updateEnrollmentActivity = async (enrollmentId) => {
+export const updateEnrollmentActivity = async (enrollmentId, userId) => {
   const query = `
         UPDATE course_enrollments
         SET last_accessed_at = NOW()
-        where id = $1
+        WHERE id = $1
+        AND user_id = $2
         AND status = 'active'
         RETURNING *;`;
-  return await pool.query(query, [enrollmentId]);
-};
-export const getEnrollmentById = async (enrollmentId) => {
-  const query = `
-        SELECT * FROM course_enrollments
-        WHERE id = $1
-        LIMIT 1;`;
-  return await pool.query(query, [enrollmentId]);
+  return await pool.query(query, [enrollmentId, userId]);
 };
 export const getEnrollmentsByUserId = async (userId) => {
   const query = `
@@ -65,21 +60,28 @@ export const getEnrollmentWithCourseDetails = async (enrollmentId, userId) => {
 };
 export const updateEnrollmentStatus = async (
   enrollmentId,
+  userId,
   status,
   expectedStatus = null,
 ) => {
   const query = `
         UPDATE course_enrollments
         SET
-            status = $2,
+            status = $3,
             completed_at = CASE
-                WHEN $2 = 'completed' THEN NOW()
+                WHEN $3 = 'completed' THEN NOW()
                 ELSE NULL
             END
         WHERE id = $1
-        AND ($3::text IS NULL OR status = $3)
+        AND user_id = $2
+        AND ($4::text IS NULL OR status = $4)
         RETURNING *;
     `;
 
-  return await pool.query(query, [enrollmentId, status, expectedStatus]);
+  return await pool.query(query, [
+    enrollmentId,
+    userId,
+    status,
+    expectedStatus,
+  ]);
 };

@@ -5,7 +5,7 @@ import { purgeExpiredCoursesService } from "../modules/courses/courseService.js"
 let isRunning = false;
 
 export const startCoursePurgeJob = () => {
-  cron.schedule(
+  const task = cron.schedule(
     "0 2 * * *",
     async () => {
       if (isRunning) {
@@ -33,4 +33,6 @@ export const startCoursePurgeJob = () => {
   );
 
   console.info("[Course Purge] Scheduled daily at 2:00 AM Pakistan time.");
+
+  return task;
 };

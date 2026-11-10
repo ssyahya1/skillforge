@@ -17,6 +17,7 @@ export async function createEnrollmentService(userId, courseId) {
     if (enrollment.status === "cancelled") {
       const result = await enrollmentRepository.reactivateEnrollment(
         enrollment.id,
+        userId,
       );
 
       return result.rows[0];
@@ -59,6 +60,7 @@ export async function createEnrollmentService(userId, courseId) {
     if (enrollment.status === "cancelled") {
       const result = await enrollmentRepository.reactivateEnrollment(
         enrollment.id,
+        userId,
       );
 
       return result.rows[0];
@@ -113,10 +115,11 @@ export async function cancelEnrollmentService(enrollmentId, userId) {
   }
 
   const updatedEnrollment = await enrollmentRepository.updateEnrollmentStatus(
-    enrollmentId,
-    "cancelled",
-    "active",
-  );
+      enrollmentId,
+      userId,
+      "cancelled",
+      "active",
+    );
 
   if (updatedEnrollment.rows.length === 0) {
     const currentEnrollment =
@@ -204,7 +207,7 @@ export async function updateEnrollmentActivityService(enrollmentId, userId) {
   }
 
   const updatedEnrollment =
-    await enrollmentRepository.updateEnrollmentActivity(enrollmentId);
+    await enrollmentRepository.updateEnrollmentActivity(enrollmentId, userId);
 
   return updatedEnrollment.rows[0];
 }

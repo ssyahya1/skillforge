@@ -45,9 +45,42 @@ export async function createSubmission(userId, submissionData) {
     executionMode,
     entryPoint,
   } = submissionData;
-  const result = await pool.query(
-    `
-    INSERT INTO public.submissions (
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const enrollment = await client.query(
+      `
+        SELECT ce.id
+        FROM public.course_enrollments ce
+        JOIN public.lessons l
+          ON l.course_id = ce.course_id
+        JOIN public.exercises e
+          ON e.lesson_id = l.id
+        JOIN public.lesson_progress lp
+          ON lp.enrollment_id = ce.id
+          AND lp.lesson_id = l.id
+        WHERE ce.user_id = $1
+          AND ce.status = 'active'
+          AND e.id = $2
+          AND e.status = 'published'
+          AND l.status = 'published'
+          AND l.deleted_at IS NULL
+          AND lp.content_completed_at IS NOT NULL
+        FOR UPDATE OF ce
+      `,
+      [userId, exerciseId],
+    );
+
+    if (enrollment.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+
+    const result = await client.query(
+      `
+      INSERT INTO public.submissions (
         user_id,
         exercise_id,
         language_id,
@@ -61,20 +94,35 @@ export async function createSubmission(userId, submissionData) {
         
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING ${submissionColumn}`,
-    [
-      userId,
-      exerciseId,
-      languageId,
-      idempotencyKey ?? null,
-      sourceCode,
-      language,
-      runtimeVersion,
-      executionMode,
-      entryPoint ?? null,
-    ],
-  );
+      [
+        userId,
+        exerciseId,
+        languageId,
+        idempotencyKey ?? null,
+        sourceCode,
+        language,
+        runtimeVersion,
+        executionMode,
+        entryPoint ?? null,
+      ],
+    );
 
-  return result.rows[0];
+    await client.query("COMMIT");
+    return result.rows[0];
+  } catch (error) {
+    try {
+      await client.query("ROLLBACK");
+    } catch (rollbackError) {
+      throw new AggregateError(
+        [error, rollbackError],
+        "Submission creation failed and rollback could not be completed",
+      );
+    }
+
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 export async function findSubmissionById(submissionId) {
   const result = await pool.query(
@@ -180,6 +228,31 @@ export async function getSubmissionTestResults(submissionId) {
   );
   return result.rows;
 }
+export async function getPublicSubmissionTestResults(submissionId) {
+  const result = await pool.query(
+    `
+      SELECT
+        result.id,
+        result.submission_id,
+        result.test_case_id,
+        result.display_order,
+        result.status,
+        result.execution_time_ms,
+        result.actual_output,
+        result.error_message,
+        result.created_at
+      FROM public.submission_test_results AS result
+      JOIN public.exercise_test_cases AS test_case
+        ON test_case.id = result.test_case_id
+      WHERE result.submission_id = $1
+        AND test_case.visibility = 'public'
+      ORDER BY result.display_order ASC
+    `,
+    [submissionId],
+  );
+
+  return result.rows;
+}
 export async function countUserFailedSubmissions(
   userId,
   exerciseId,
@@ -236,15 +309,15 @@ export async function findSubmissionByIdempotencyKey(
 
   return result.rows[0] ?? null;
 };
-export async function findSubmissionDetailsById(submissionId) {
+export async function findSubmissionDetailsById(userId, submissionId) {
   const result = await pool.query(
     `
       SELECT ${submissionColumn}, source_code
       FROM public.submissions
-      WHERE id = $1
+      WHERE id = $2 AND user_id = $1
       LIMIT 1
     `,
-    [submissionId],
+    [userId, submissionId],
   );
 
   return result.rows[0] ?? null;

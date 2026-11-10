@@ -118,4 +118,13 @@ describe("executionQueue", () => {
     expect(close).toHaveBeenCalledOnce();
     expect(quit).toHaveBeenCalledOnce();
   });
+
+  it("should close Redis even if closing the queue fails", async () => {
+    close.mockRejectedValueOnce(new Error("Queue close failed"));
+
+    await expect(closeExecutionQueue()).rejects.toThrow("Queue close failed");
+
+    expect(close).toHaveBeenCalledOnce();
+    expect(quit).toHaveBeenCalledOnce();
+  });
 });

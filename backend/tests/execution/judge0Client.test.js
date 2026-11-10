@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   resolveLanguageId,
   parseJudge0Status,
@@ -7,12 +7,17 @@ import {
   pollSubmission,
   getJudge0Config,
   LANGUAGE_MAP,
+  JUDGE0_REQUEST_TIMEOUT_MS,
 } from "../../src/modules/execution/judge0Client.js";
 
 describe("judge0Client", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     process.env.JUDGE0_AUTH_TOKEN = "test-token";
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   describe("getJudge0Config", () => {
@@ -183,6 +188,7 @@ describe("judge0Client", () => {
     });
 
     it("should poll when submission response status is <= 2 (processing)", async () => {
+      const events = [];
       const pendingResult = {
         token: "job-456",
         status: { id: 2, description: "Processing" },
@@ -194,24 +200,45 @@ describe("judge0Client", () => {
         stdout: "Done",
       };
 
-      globalThis.fetch = vi
-        .fn()
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => pendingResult,
-        })
-        .mockResolvedValueOnce({
+      globalThis.fetch = vi.fn(async () => {
+        if (events.length === 0) {
+          return {
+            ok: true,
+            json: async () => pendingResult,
+          };
+        }
+
+        events.push("poll");
+        return {
           ok: true,
           json: async () => finalResult,
-        });
+        };
+      });
 
       const result = await submitToJudge0({
         sourceCode: "print('Done')",
         language: "python",
+        onSubmissionToken: async (token) => events.push(`persist:${token}`),
       });
 
       expect(result).toEqual(finalResult);
+      expect(events).toEqual(["persist:job-456", "poll"]);
       expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("should treat a pending response without a token as ambiguous", async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ status: { id: 2 } }),
+      });
+
+      await expect(
+        submitToJudge0({
+          sourceCode: "code",
+          language: "python",
+        }),
+      ).rejects.toMatchObject({ code: "JUDGE0_POST_AMBIGUOUS" });
+      expect(globalThis.fetch).toHaveBeenCalledOnce();
     });
 
     it("should throw when API returns an error response", async () => {
@@ -230,6 +257,34 @@ describe("judge0Client", () => {
       ).rejects.toThrow(
         "Judge0 submission failed with HTTP 500: Sandbox failure",
       );
+    });
+
+    it("aborts a timed-out POST and identifies its outcome as ambiguous", async () => {
+      vi.useFakeTimers();
+      globalThis.fetch = vi.fn(
+        (_url, { signal }) =>
+          new Promise((resolve, reject) => {
+            signal.addEventListener(
+              "abort",
+              () => reject(new DOMException("Aborted", "AbortError")),
+              { once: true },
+            );
+          }),
+      );
+
+      const request = submitToJudge0({
+        sourceCode: "code",
+        language: "python",
+      });
+      const rejection = expect(request).rejects.toMatchObject({
+        code: "JUDGE0_POST_TIMEOUT",
+      });
+
+      await vi.advanceTimersByTimeAsync(JUDGE0_REQUEST_TIMEOUT_MS);
+
+      await rejection;
+      expect(fetch.mock.calls[0][1].signal.aborted).toBe(true);
+      expect(fetch).toHaveBeenCalledOnce();
     });
   });
 
@@ -261,6 +316,37 @@ describe("judge0Client", () => {
       await expect(
         pollSubmission("poll-timeout", getJudge0Config(), 2, 10),
       ).rejects.toThrow("Judge0 submission timed out");
+    });
+
+    it("aborts a timed-out polling GET and leaves it retryable", async () => {
+      vi.useFakeTimers();
+      globalThis.fetch = vi.fn(
+        (_url, { signal }) =>
+          new Promise((resolve, reject) => {
+            signal.addEventListener(
+              "abort",
+              () => reject(new DOMException("Aborted", "AbortError")),
+              { once: true },
+            );
+          }),
+      );
+
+      const request = pollSubmission(
+        "poll-timeout",
+        getJudge0Config(),
+        1,
+        0,
+        1000,
+      );
+      const rejection = expect(request).rejects.toMatchObject({
+        code: "JUDGE0_GET_TIMEOUT",
+      });
+
+      await vi.advanceTimersByTimeAsync(1000);
+
+      await rejection;
+      expect(fetch.mock.calls[0][1].signal.aborted).toBe(true);
+      expect(fetch).toHaveBeenCalledOnce();
     });
   });
 });

@@ -1,5 +1,7 @@
 import { pool } from "../../database/pool.js";
 
+export { getPublicSubmissionTestResults } from "../submissions/submissionRepository.js";
+
 export async function findSubmissionById(submissionId) {
   const result = await pool.query(
     `
@@ -24,6 +26,63 @@ export async function findSubmissionById(submissionId) {
   );
 
   return result.rows[0] ?? null;
+}
+
+export async function findUserSubmissionById(submissionId, userId) {
+  const result = await pool.query(
+    `
+      SELECT
+        id,
+        user_id,
+        exercise_id,
+        language_id,
+        source_code,
+        language,
+        runtime_version,
+        execution_mode,
+        entry_point,
+        status,
+        created_at,
+        updated_at
+      FROM public.submissions
+      WHERE id = $1
+        AND user_id = $2
+      LIMIT 1
+    `,
+    [submissionId, userId],
+  );
+
+  return result.rows[0] ?? null;
+}
+
+export async function isSubmissionEligibleForExecution(
+  submissionId,
+  userId,
+) {
+  const result = await pool.query(
+    `
+      SELECT EXISTS (
+        SELECT 1
+        FROM public.submissions s
+        JOIN public.exercises e ON e.id = s.exercise_id
+        JOIN public.lessons l ON l.id = e.lesson_id
+        JOIN public.course_enrollments ce ON ce.course_id = l.course_id
+        JOIN public.lesson_progress lp
+          ON lp.enrollment_id = ce.id
+          AND lp.lesson_id = l.id
+        WHERE s.id = $1
+          AND s.user_id = $2
+          AND ce.status = 'active'
+          AND e.status = 'published'
+          AND l.status = 'published'
+          AND l.deleted_at IS NULL
+          AND lp.content_completed_at IS NOT NULL
+      ) AS eligible
+    `,
+    [submissionId, userId],
+  );
+
+  return result.rows[0].eligible;
 }
 
 export async function findQueuedSubmission(submissionId) {
@@ -86,20 +145,238 @@ export async function acquireSubmissionExecutionLock(submissionId) {
 }
 
 export async function claimSubmission(submissionId) {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const submissionResult = await client.query(
+      `
+        SELECT id, user_id, exercise_id, language_id, status
+        FROM public.submissions
+        WHERE id = $1
+          AND status IN ('queued', 'processing')
+        FOR UPDATE
+      `,
+      [submissionId],
+    );
+
+    const submission = submissionResult.rows[0];
+
+    if (!submission) {
+      await client.query("COMMIT");
+      return null;
+    }
+
+    const checkpointResult = await client.query(
+      `
+        SELECT 1
+        FROM public.submission_execution_checkpoints
+        WHERE submission_id = $1
+        LIMIT 1
+      `,
+      [submissionId],
+    );
+
+    const isFreshSubmission =
+      submission.status === "queued" &&
+      checkpointResult.rows.length === 0;
+
+    if (isFreshSubmission) {
+      const eligibilityResult = await client.query(
+        `
+          SELECT ce.id
+          FROM public.course_enrollments ce
+          JOIN public.lessons l ON l.course_id = ce.course_id
+          JOIN public.exercises e ON e.lesson_id = l.id
+          JOIN public.lesson_progress lp
+            ON lp.enrollment_id = ce.id
+            AND lp.lesson_id = l.id
+          WHERE ce.user_id = $1
+            AND ce.status = 'active'
+            AND e.id = $2
+            AND e.status = 'published'
+            AND l.status = 'published'
+            AND l.deleted_at IS NULL
+            AND lp.content_completed_at IS NOT NULL
+          FOR UPDATE OF ce
+        `,
+        [submission.user_id, submission.exercise_id],
+      );
+
+      if (eligibilityResult.rows.length === 0) {
+        const errorMessage =
+          "Enrollment is no longer active or lesson requirements are incomplete.";
+
+        const failedResult = await client.query(
+          `
+            UPDATE public.submissions
+            SET status = 'internal_error',
+                error_message = $2,
+                updated_at = NOW()
+            WHERE id = $1
+            RETURNING id, user_id, exercise_id, language_id, status
+          `,
+          [submissionId, errorMessage],
+        );
+
+        await client.query("COMMIT");
+
+        return {
+          ...failedResult.rows[0],
+          ineligible: true,
+          error_message: errorMessage,
+        };
+      }
+    }
+
+    const result = await client.query(
+      `
+        UPDATE public.submissions
+        SET status = 'processing', updated_at = NOW()
+        WHERE id = $1
+        RETURNING id, user_id, exercise_id, language_id, status
+      `,
+      [submissionId],
+    );
+
+    await client.query("COMMIT");
+
+    return {
+      ...result.rows[0],
+      previous_status: submission.status,
+    };
+  } catch (error) {
+    try {
+      await client.query("ROLLBACK");
+    } catch (rollbackError) {
+      throw new AggregateError(
+        [error, rollbackError],
+        "Submission claim failed and rollback could not be completed",
+      );
+    }
+
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function getSubmissionTestExecutionCheckpoint(
+  submissionId,
+  testCaseId,
+) {
   const result = await pool.query(
     `
-      UPDATE public.submissions
-      SET
-        status = 'processing',
-        updated_at = NOW()
-      WHERE id = $1
-        AND status IN ('queued', 'processing')
-      RETURNING id, user_id, exercise_id, language_id, status
+      SELECT state, judge0_token, result
+      FROM public.submission_execution_checkpoints
+      WHERE submission_id = $1
+        AND test_case_id = $2
+      LIMIT 1
     `,
-    [submissionId],
+    [submissionId, testCaseId],
   );
 
   return result.rows[0] ?? null;
+}
+
+export async function beginSubmissionTestExecution({
+  submissionId,
+  testCaseId,
+  displayOrder,
+}) {
+  await pool.query(
+    `
+      INSERT INTO public.submission_execution_checkpoints AS checkpoint (
+        submission_id,
+        test_case_id,
+        display_order,
+        state
+      )
+      VALUES ($1, $2, $3, 'submitting')
+      ON CONFLICT (submission_id, test_case_id) DO NOTHING
+    `,
+    [submissionId, testCaseId, displayOrder],
+  );
+
+  return getSubmissionTestExecutionCheckpoint(submissionId, testCaseId);
+}
+
+export async function saveJudge0SubmissionToken(
+  submissionId,
+  testCaseId,
+  judge0Token,
+) {
+  const result = await pool.query(
+    `
+      UPDATE public.submission_execution_checkpoints
+      SET
+        state = 'submitted',
+        judge0_token = $3,
+        updated_at = NOW()
+      WHERE submission_id = $1
+        AND test_case_id = $2
+        AND state = 'submitting'
+      RETURNING submission_id
+    `,
+    [submissionId, testCaseId, judge0Token],
+  );
+
+  if (!result.rows[0]) {
+    throw new Error("Could not persist the Judge0 submission token.");
+  }
+}
+
+export async function completeSubmissionTestExecution(
+  submissionId,
+  testCaseId,
+  result,
+) {
+  const saved = await pool.query(
+    `
+      UPDATE public.submission_execution_checkpoints
+      SET
+        state = 'completed',
+        result = $3,
+        updated_at = NOW()
+      WHERE submission_id = $1
+        AND test_case_id = $2
+        AND state IN ('submitting', 'submitted')
+      RETURNING submission_id
+    `,
+    [submissionId, testCaseId, JSON.stringify(result)],
+  );
+
+  if (!saved.rows[0]) {
+    throw new Error("Could not persist the Judge0 execution result.");
+  }
+}
+
+export async function markSubmissionTestExecutionAmbiguous(
+  submissionId,
+  testCaseId,
+  displayOrder,
+  errorMessage,
+) {
+  await pool.query(
+    `
+      INSERT INTO public.submission_execution_checkpoints AS checkpoint (
+        submission_id,
+        test_case_id,
+        display_order,
+        state,
+        error_message
+      )
+      VALUES ($1, $2, $3, 'ambiguous', $4)
+      ON CONFLICT (submission_id, test_case_id)
+      DO UPDATE SET
+        state = 'ambiguous',
+        error_message = EXCLUDED.error_message,
+        updated_at = NOW()
+      WHERE checkpoint.state IN ('submitting', 'submitted')
+    `,
+    [submissionId, testCaseId, displayOrder, errorMessage],
+  );
 }
 
 export async function markSubmissionExecutionFailure(
@@ -275,35 +552,6 @@ export async function getSubmissionTestResults(submissionId) {
       FROM public.submission_test_results
       WHERE submission_id = $1
       ORDER BY display_order ASC
-    `,
-    [submissionId],
-  );
-
-  return result.rows;
-}
-
-export async function getPublicSubmissionTestResults(submissionId) {
-  const result = await pool.query(
-    `
-      SELECT
-        result.id,
-        result.submission_id,
-        result.test_case_id,
-        result.display_order,
-        result.status,
-        result.execution_time_ms,
-        result.actual_output,
-        result.error_message,
-        result.created_at
-      FROM public.submission_test_results AS result
-      LEFT JOIN public.exercise_test_cases AS test_case
-        ON test_case.id = result.test_case_id
-      WHERE result.submission_id = $1
-        AND (
-          test_case.visibility = 'public'
-          OR test_case.id IS NULL
-        )
-      ORDER BY result.display_order ASC
     `,
     [submissionId],
   );
@@ -601,6 +849,14 @@ export async function finalizeSubmissionWithProgress({
         }
       }
     }
+
+    await client.query(
+      `
+        DELETE FROM public.submission_execution_checkpoints
+        WHERE submission_id = $1
+      `,
+      [submissionId],
+    );
 
     await client.query("COMMIT");
     return submission;

@@ -31,15 +31,14 @@ export const createRateLimiter = ({
   limit,
   prefix,
   message,
-  store = createRedisStore(prefix),
-  skip
-}) =>
-  rateLimit({
+  store,
+  skip,
+}) => {
+  const options = {
     windowMs: 15 * 60 * 1000,
     limit,
     standardHeaders: "draft-8",
     legacyHeaders: false,
-    store,
     skip,
     handler: (req, res) => {
       res.status(429).json({
@@ -47,8 +46,16 @@ export const createRateLimiter = ({
         message,
       });
     },
-  });
+  };
 
+  if (store) {
+    options.store = store;
+  } else if (process.env.NODE_ENV !== "test") {
+    options.store = createRedisStore(prefix);
+  }
+
+  return rateLimit(options);
+};
 export const globalRateLimiter = createRateLimiter({
   limit: 300,
   prefix: "skillforge:rl:global:",

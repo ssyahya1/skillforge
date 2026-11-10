@@ -37,6 +37,9 @@ export const addExecutionJob = async ({ submissionId }) => {
 };
 
 export const closeExecutionQueue = async () => {
-  await executionQueue.close();
-  await redisConnection.quit();
+  try {
+    await executionQueue.close();
+  } finally {
+    await redisConnection.quit();
+  }
 };

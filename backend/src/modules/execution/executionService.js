@@ -2,7 +2,7 @@ import * as executionRepository from "./executionRepository.js";
 import * as executionQueue from "./executionQueue.js";
 
 export const queueSubmission = async (submissionId, userId) => {
-  const submission = await executionRepository.findSubmissionById(submissionId);
+  const submission = await executionRepository.findUserSubmissionById(submissionId, userId);
 
   if (!submission) {
     const error = new Error("Submission not found.");
@@ -26,6 +26,19 @@ export const queueSubmission = async (submissionId, userId) => {
     throw error;
   }
 
+  const eligible =
+    await executionRepository.isSubmissionEligibleForExecution(
+      submission.id,
+      userId,
+    );
+  if (!eligible) {
+    const error = new Error(
+      "You must be actively enrolled and complete the lesson content before executing an exercise.",
+    );
+    error.status = 403;
+    throw error;
+  }
+
   try {
     const job = await executionQueue.addExecutionJob({
       submissionId: submission.id,
@@ -45,7 +58,7 @@ export const queueSubmission = async (submissionId, userId) => {
 };
 
 export const getSubmissionResults = async (submissionId, userId) => {
-  const submission = await executionRepository.findSubmissionById(submissionId);
+  const submission = await executionRepository.findUserSubmissionById(submissionId, userId);
 
   if (!submission) {
     const error = new Error("Submission not found.");
@@ -60,7 +73,7 @@ export const getSubmissionResults = async (submissionId, userId) => {
   }
 
   const testResults =
-    await executionRepository.getSubmissionTestResults(submissionId);
+    await executionRepository.getPublicSubmissionTestResults(submissionId);
 
   return {
     submission,

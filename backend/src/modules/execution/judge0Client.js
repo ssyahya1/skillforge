@@ -1,5 +1,61 @@
 const DEFAULT_API_URL = "http://127.0.0.1:2358";
 const DEFAULT_AUTH_HEADER = "X-Judge0-Token";
+export const JUDGE0_REQUEST_TIMEOUT_MS = 15_000;
+
+function createRequestTimeoutError(method, timeoutMs) {
+  const error = new Error(
+    `Judge0 ${method} request timed out after ${timeoutMs}ms.`,
+  );
+  error.code =
+    method === "POST" ? "JUDGE0_POST_TIMEOUT" : "JUDGE0_GET_TIMEOUT";
+  return error;
+}
+
+async function fetchWithTimeout(url, options, method, timeoutMs) {
+  const controller = new AbortController();
+  let timeoutId;
+
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      controller.abort();
+      reject(createRequestTimeoutError(method, timeoutMs));
+    }, timeoutMs);
+  });
+
+  const requestPromise = (async () => {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      if (method === "GET") {
+        throw new Error(
+          `Failed to fetch Judge0 submission: HTTP ${response.status}`,
+        );
+      }
+
+      const errorBody = await response.text();
+      throw new Error(
+        `Judge0 submission failed with HTTP ${response.status}: ${errorBody || response.statusText}`,
+      );
+    }
+
+    return response.json();
+  })();
+
+  try {
+    return await Promise.race([requestPromise, timeoutPromise]);
+  } catch (error) {
+    if (controller.signal.aborted && error?.code !== "JUDGE0_POST_TIMEOUT") {
+      throw createRequestTimeoutError(method, timeoutMs);
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
 
 export const LANGUAGE_MAP = {
   javascript: Number(process.env.JUDGE0_JAVASCRIPT_LANGUAGE_ID) || 63,
@@ -89,6 +145,7 @@ export async function submitToJudge0({
   language,
   stdin,
   expectedOutput,
+  onSubmissionToken,
   cpuTimeLimit,
   memoryLimit,
 }) {
@@ -120,25 +177,29 @@ export async function submitToJudge0({
     payload.memory_limit = memoryLimit;
   }
 
-  const response = await fetch(
+  const result = await fetchWithTimeout(
     `${config.apiUrl}/submissions?base64_encoded=false&wait=true`,
     {
       method: "POST",
       headers: buildHeaders(config),
       body: JSON.stringify(payload),
     },
+    "POST",
+    JUDGE0_REQUEST_TIMEOUT_MS,
   );
 
-  if (!response.ok) {
-    const errorBody = await response.text();
-    throw new Error(
-      `Judge0 submission failed with HTTP ${response.status}: ${errorBody || response.statusText}`,
-    );
+  if (result.token && onSubmissionToken) {
+    await onSubmissionToken(result.token);
   }
 
-  const result = await response.json();
+  if (result.status && result.status.id <= 2) {
+    if (!result.token) {
+      throw Object.assign(
+        new Error("Judge0 accepted the submission without returning a token."),
+        { code: "JUDGE0_POST_AMBIGUOUS" },
+      );
+    }
 
-  if (result.status && result.status.id <= 2 && result.token) {
     return await pollSubmission(result.token, config);
   }
 
@@ -150,27 +211,22 @@ export async function pollSubmission(
   config = getJudge0Config(),
   maxAttempts = 10,
   intervalMs = 500,
+  timeoutMs = JUDGE0_REQUEST_TIMEOUT_MS,
 ) {
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     if (attempt > 0) {
       await new Promise((resolve) => setTimeout(resolve, intervalMs));
     }
 
-    const response = await fetch(
+    const data = await fetchWithTimeout(
       `${config.apiUrl}/submissions/${token}?base64_encoded=false`,
       {
         method: "GET",
         headers: buildHeaders(config),
       },
+      "GET",
+      timeoutMs,
     );
-
-    if (!response.ok) {
-      throw new Error(
-        `Failed to fetch Judge0 submission: HTTP ${response.status}`,
-      );
-    }
-
-    const data = await response.json();
 
     if (data.status && data.status.id > 2) {
       return data;

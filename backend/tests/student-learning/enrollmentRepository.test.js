@@ -96,12 +96,12 @@ describe("Enrollment Repository", () => {
       pool.query.mockResolvedValue(mockResult);
 
       const result =
-        await enrollmentRepository.reactivateEnrollment("enrollment-1");
+        await enrollmentRepository.reactivateEnrollment("enrollment-1", "user-1");
 
       expect(result).toEqual(mockResult);
       expect(pool.query).toHaveBeenCalledWith(
         expect.stringContaining("SET status = 'active'"),
-        ["enrollment-1"],
+        ["enrollment-1", "user-1"],
       );
     });
 
@@ -109,7 +109,7 @@ describe("Enrollment Repository", () => {
       pool.query.mockResolvedValue({ rows: [] });
 
       const result =
-        await enrollmentRepository.reactivateEnrollment("enrollment-1");
+        await enrollmentRepository.reactivateEnrollment("enrollment-1", "user-1");
 
       expect(result.rows).toEqual([]);
     });
@@ -118,7 +118,7 @@ describe("Enrollment Repository", () => {
       pool.query.mockRejectedValue(new Error("Database error"));
 
       await expect(
-        enrollmentRepository.reactivateEnrollment("enrollment-1"),
+        enrollmentRepository.reactivateEnrollment("enrollment-1", "user-1"),
       ).rejects.toThrow("Database error");
     });
   });
@@ -132,12 +132,12 @@ describe("Enrollment Repository", () => {
       pool.query.mockResolvedValue(mockResult);
 
       const result =
-        await enrollmentRepository.updateEnrollmentActivity("enrollment-1");
+        await enrollmentRepository.updateEnrollmentActivity("enrollment-1", "user-1");
 
       expect(result).toEqual(mockResult);
       expect(pool.query).toHaveBeenCalledWith(
         expect.stringContaining("last_accessed_at = NOW()"),
-        ["enrollment-1"],
+        ["enrollment-1", "user-1"],
       );
     });
 
@@ -145,7 +145,7 @@ describe("Enrollment Repository", () => {
       pool.query.mockResolvedValue({ rows: [] });
 
       const result =
-        await enrollmentRepository.updateEnrollmentActivity("enrollment-1");
+        await enrollmentRepository.updateEnrollmentActivity("enrollment-1", "user-1");
 
       expect(result.rows).toEqual([]);
     });
@@ -154,46 +154,11 @@ describe("Enrollment Repository", () => {
       pool.query.mockRejectedValue(new Error("Database error"));
 
       await expect(
-        enrollmentRepository.updateEnrollmentActivity("enrollment-1"),
+        enrollmentRepository.updateEnrollmentActivity("enrollment-1", "user-1"),
       ).rejects.toThrow("Database error");
     });
   });
 
-  describe("getEnrollmentById", () => {
-    it("should retrieve an enrollment by ID", async () => {
-      const mockResult = {
-        rows: [{ id: "enrollment-1" }],
-      };
-
-      pool.query.mockResolvedValue(mockResult);
-
-      const result =
-        await enrollmentRepository.getEnrollmentById("enrollment-1");
-
-      expect(result).toEqual(mockResult);
-      expect(pool.query).toHaveBeenCalledWith(
-        expect.stringContaining("WHERE id = $1"),
-        ["enrollment-1"],
-      );
-    });
-
-    it("should return an empty result when enrollment does not exist", async () => {
-      pool.query.mockResolvedValue({ rows: [] });
-
-      const result =
-        await enrollmentRepository.getEnrollmentById("enrollment-1");
-
-      expect(result.rows).toEqual([]);
-    });
-
-    it("should propagate database errors", async () => {
-      pool.query.mockRejectedValue(new Error("Database error"));
-
-      await expect(
-        enrollmentRepository.getEnrollmentById("enrollment-1"),
-      ).rejects.toThrow("Database error");
-    });
-  });
 
   describe("getEnrollmentsByUserId", () => {
     it("should retrieve all enrollments belonging to a user", async () => {
@@ -313,16 +278,17 @@ describe("Enrollment Repository", () => {
 
       const result = await enrollmentRepository.updateEnrollmentStatus(
         "enrollment-1",
+        "user-1",
         "cancelled",
       );
 
       expect(result).toEqual(mockResult);
       expect(pool.query).toHaveBeenCalledWith(
         expect.stringContaining("completed_at = CASE"),
-        ["enrollment-1", "cancelled", null],
+        ["enrollment-1", "user-1", "cancelled", null],
       );
       expect(pool.query.mock.calls[0][0]).toContain(
-        "AND ($3::text IS NULL OR status = $3)",
+        "AND ($4::text IS NULL OR status = $4)",
       );
     });
 
@@ -341,14 +307,14 @@ describe("Enrollment Repository", () => {
 
       const result = await enrollmentRepository.updateEnrollmentStatus(
         "enrollment-1",
-        "completed",
+        "user-1","user-1","completed",
       );
 
       expect(result).toEqual(mockResult);
 
       const query = pool.query.mock.calls[0][0];
 
-      expect(query).toContain("WHEN $2 = 'completed' THEN NOW()");
+      expect(query).toContain("WHEN $3 = 'completed' THEN NOW()");
     });
 
     it("should clear completed_at when status is not completed", async () => {
@@ -364,7 +330,7 @@ describe("Enrollment Repository", () => {
 
       await enrollmentRepository.updateEnrollmentStatus(
         "enrollment-1",
-        "active",
+        "user-1","user-1","active",
       );
 
       const query = pool.query.mock.calls[0][0];
@@ -377,6 +343,7 @@ describe("Enrollment Repository", () => {
 
       const result = await enrollmentRepository.updateEnrollmentStatus(
         "enrollment-1",
+        "user-1",
         "cancelled",
       );
 
@@ -389,7 +356,7 @@ describe("Enrollment Repository", () => {
       await expect(
         enrollmentRepository.updateEnrollmentStatus(
           "enrollment-1",
-          "cancelled",
+          "user-1","user-1","cancelled",
         ),
       ).rejects.toThrow("Database error");
     });

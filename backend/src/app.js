@@ -2,8 +2,14 @@ import "dotenv/config";
 import express from "express";
 import helmet from "helmet";
 import { createCorsMiddleware } from "./middleware/corsMiddleware.js";
+import { createOriginValidationMiddleware } from "./middleware/originValidation.js";
 import cookieParser from "cookie-parser";
-import { globalRateLimiter } from "./middleware/rateLimiter.js";
+import {
+  globalRateLimiter,
+  rateLimitRedis,
+} from "./middleware/rateLimiter.js";
+import { redisConnection } from "./modules/execution/executionQueue.js";
+import { pool } from "./database/pool.js";
 import authRoutes from "./modules/auth/authRoutes.js";
 import adminRoutes from "./modules/admin/adminRoutes.js";
 import courseRoutes from "./modules/courses/courseRoutes.js";
@@ -15,6 +21,7 @@ import studentLearningRoutes from "./modules/student-learning/studentLearningRou
 import enrollmentRoutes from "./modules/student-learning/enrollmentRoutes.js";
 import progressRoutes from "./modules/progress/progressRoutes.js";
 const app = express();
+app.locals.executionWorkerReady = false;
 
 app.use(helmet());
 const allowedOrigins = (
@@ -26,10 +33,37 @@ const allowedOrigins = (
   .filter(Boolean);
 
 app.use(createCorsMiddleware(allowedOrigins));
+app.use(createOriginValidationMiddleware(allowedOrigins));
 app.use(express.json({ limit: "110kb" }));
 app.use(cookieParser());
 app.get("/api/health", (req, res) => {
   res.status(200).json({ status: "ok" });
+});
+app.get("/api/ready", async (req, res) => {
+  if (
+    process.env.RUN_WORKER !== "false" &&
+    !app.locals.executionWorkerReady
+  ) {
+    return res.status(503).json({ status: "not_ready" });
+  }
+
+  if (
+    rateLimitRedis.status !== "ready" ||
+    redisConnection.status !== "ready"
+  ) {
+    return res.status(503).json({ status: "not_ready" });
+  }
+
+  try {
+    await pool.query("SELECT 1");
+    return res.status(200).json({ status: "ready" });
+  } catch (error) {
+    console.error(
+      "[Readiness] Database check failed.",
+      error.code ?? error.name,
+    );
+    return res.status(503).json({ status: "not_ready" });
+  }
 });
 app.use("/api", globalRateLimiter);
 

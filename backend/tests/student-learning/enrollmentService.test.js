@@ -5,7 +5,7 @@ vi.mock("../../src/modules/student-learning/enrollmentRepository.js", () => ({
   getEnrollmentByCourseIdAndUser: vi.fn(),
   reactivateEnrollment: vi.fn(),
   updateEnrollmentActivity: vi.fn(),
-  getEnrollmentById: vi.fn(),
+
   getEnrollmentsByUserId: vi.fn(),
   getEnrollmentWithCourseDetails: vi.fn(),
   updateEnrollmentStatus: vi.fn(),
@@ -123,6 +123,7 @@ describe("createEnrollmentService", () => {
 
     expect(enrollmentRepository.reactivateEnrollment).toHaveBeenCalledWith(
       enrollmentId,
+      userId,
     );
     expect(result).toEqual(activeEnrollment);
   });
@@ -206,6 +207,7 @@ describe("createEnrollmentService", () => {
 
     expect(enrollmentRepository.reactivateEnrollment).toHaveBeenCalledWith(
       enrollmentId,
+      userId,
     );
     expect(result).toEqual(activeEnrollment);
   });
@@ -329,6 +331,7 @@ describe("cancelEnrollmentService", () => {
     ).toHaveBeenCalledWith(enrollmentId, userId);
     expect(enrollmentRepository.updateEnrollmentStatus).toHaveBeenCalledWith(
       enrollmentId,
+      userId,
       "cancelled",
       "active",
     );
@@ -352,6 +355,7 @@ describe("cancelEnrollmentService", () => {
 
     expect(enrollmentRepository.updateEnrollmentStatus).toHaveBeenCalledWith(
       enrollmentId,
+      userId,
       "cancelled",
       "active",
     );
@@ -459,6 +463,7 @@ describe("updateEnrollmentActivityService", () => {
 
     expect(enrollmentRepository.updateEnrollmentActivity).toHaveBeenCalledWith(
       enrollmentId,
+      userId,
     );
     expect(result.last_accessed_at).toBeDefined();
   });

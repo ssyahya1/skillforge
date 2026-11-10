@@ -3,6 +3,8 @@ import { redisConnection } from "./executionQueue.js";
 import * as executionRepository from "./executionRepository.js";
 import * as judge0Client from "./judge0Client.js";
 
+const STALLED_JOB_FAILURE = "job stalled more than allowable limit";
+
 export function determineOverallStatus(
   testResults,
   compilationError = null,
@@ -40,6 +42,51 @@ export function determineOverallStatus(
   return "internal_error";
 }
 
+async function terminalizeAmbiguousExecution(
+  submissionId,
+  testCase,
+  errorMessage,
+) {
+  let persistenceFailed = false;
+  let submission = null;
+
+  try {
+    await executionRepository.markSubmissionTestExecutionAmbiguous(
+      submissionId,
+      testCase.id,
+      testCase.display_order ?? 0,
+      errorMessage,
+    );
+  } catch (error) {
+    persistenceFailed = true;
+    console.error(
+      `[ExecutionWorker] Could not persist ambiguous Judge0 checkpoint for submission ${submissionId}:`,
+      error.message,
+    );
+  }
+
+  try {
+    submission = await executionRepository.markSubmissionExecutionFailure(
+      submissionId,
+      errorMessage,
+      true,
+    );
+  } catch (error) {
+    persistenceFailed = true;
+    console.error(
+      `[ExecutionWorker] Could not persist ambiguous execution status for submission ${submissionId}:`,
+      error.message,
+    );
+  }
+
+  return {
+    submissionId,
+    status: submission?.status ?? "unknown",
+    ambiguous: true,
+    ...(persistenceFailed ? { persistenceFailed: true } : {}),
+  };
+}
+
 export async function processExecutionJob(job) {
   const { submissionId } = job.data;
 
@@ -53,12 +100,20 @@ export async function processExecutionJob(job) {
   }
 
   let claimed = null;
+  let activeTestCase = null;
   try {
     claimed = await executionRepository.claimSubmission(submissionId);
     if (!claimed) {
       return {
         skipped: true,
         reason: "Submission already processed or not queued.",
+      };
+    }
+
+    if (claimed.ineligible) {
+      return {
+        skipped: true,
+        reason: claimed.error_message,
       };
     }
 
@@ -106,14 +161,80 @@ export async function processExecutionJob(job) {
     let internalError = null;
     let maxExecutionTimeMs = 0;
     let maxMemoryUsedKb = 0;
+    let hasCompletedCheckpoint = false;
 
     for (const testCase of testCases) {
-      const judgeResult = await judge0Client.submitToJudge0({
-        sourceCode: submission.source_code,
-        language: submission.language,
-        stdin: testCase.input_data,
-        expectedOutput: testCase.expected_output,
-      });
+      activeTestCase = testCase;
+      let checkpoint =
+        await executionRepository.getSubmissionTestExecutionCheckpoint(
+          submissionId,
+          testCase.id,
+        );
+      let judgeResult;
+
+      if (!checkpoint) {
+        if (
+          claimed.previous_status === "processing" &&
+          !hasCompletedCheckpoint
+        ) {
+          return await terminalizeAmbiguousExecution(
+            submissionId,
+            testCase,
+            "Execution restarted without a durable Judge0 checkpoint; the remote outcome is unknown.",
+          );
+        }
+
+        checkpoint =
+          await executionRepository.beginSubmissionTestExecution({
+            submissionId,
+            testCaseId: testCase.id,
+            displayOrder: testCase.display_order ?? 0,
+          });
+        if (!checkpoint) {
+          throw new Error("Could not create the Judge0 execution checkpoint.");
+        }
+
+        judgeResult = await judge0Client.submitToJudge0({
+          sourceCode: submission.source_code,
+          language: submission.language,
+          stdin: testCase.input_data,
+          expectedOutput: testCase.expected_output,
+          onSubmissionToken: (token) =>
+            executionRepository.saveJudge0SubmissionToken(
+              submissionId,
+              testCase.id,
+              token,
+            ),
+        });
+
+        await executionRepository.completeSubmissionTestExecution(
+          submissionId,
+          testCase.id,
+          judgeResult,
+        );
+      } else if (checkpoint.state === "completed" && checkpoint.result) {
+        judgeResult = checkpoint.result;
+      } else if (
+        checkpoint.state === "submitted" &&
+        checkpoint.judge0_token
+      ) {
+        judgeResult = await judge0Client.pollSubmission(
+          checkpoint.judge0_token,
+        );
+        await executionRepository.completeSubmissionTestExecution(
+          submissionId,
+          testCase.id,
+          judgeResult,
+        );
+      } else {
+        return await terminalizeAmbiguousExecution(
+          submissionId,
+          testCase,
+          "Execution restarted after Judge0 may have accepted the submission; the remote outcome is unknown.",
+        );
+      }
+
+      hasCompletedCheckpoint = true;
 
       const parsedStatus = judge0Client.parseJudge0Status(judgeResult);
       const executionTimeMs = Math.round(
@@ -224,6 +345,22 @@ export async function processExecutionJob(job) {
     };
   } catch (error) {
     if (claimed) {
+      if (
+        error.code === "JUDGE0_POST_TIMEOUT" ||
+        error.code === "JUDGE0_POST_AMBIGUOUS"
+      ) {
+        const errorMessage =
+          error.code === "JUDGE0_POST_TIMEOUT"
+            ? "Judge0 timed out after submission; execution outcome is unknown."
+            : "Judge0 accepted the submission without a usable token; execution outcome is unknown.";
+
+        return await terminalizeAmbiguousExecution(
+          submissionId,
+          activeTestCase,
+          errorMessage,
+        );
+      }
+
       const attempts = Number(job.opts?.attempts ?? 1);
       const attemptsMade = Number(job.attemptsMade ?? 0);
 
@@ -256,6 +393,31 @@ export function createExecutionWorker(options = {}) {
 
   worker.on("failed", (job, err) => {
     console.error(`[ExecutionWorker] Job ${job?.id} failed:`, err.message);
+
+    if (err.message !== STALLED_JOB_FAILURE) {
+      return;
+    }
+
+    const submissionId = job?.data?.submissionId;
+    if (!submissionId) {
+      console.error(
+        "[ExecutionWorker] Stalled execution job has no submission ID.",
+      );
+      return;
+    }
+
+    executionRepository
+      .markSubmissionExecutionFailure(
+        submissionId,
+        "Execution worker stopped before the submission completed.",
+        true,
+      )
+      .catch((error) => {
+        console.error(
+          `[ExecutionWorker] Could not persist terminal stalled state for submission ${submissionId}:`,
+          error.message,
+        );
+      });
   });
 
   return worker;
